@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Local databases / data
+tracker.db
+*.db
+*.sqlite
+*.sqlite3
+
+# OS junk
+.DS_Store
+
+# Logs
+*.log
