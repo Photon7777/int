@@ -426,6 +426,8 @@ with tabs[0]:
                 else:
                     with st.spinner("Extracting company / (role) / location…"):
                         fields = extract_fields(autofill_source_text)
+                    # ✅ This is OK because we immediately rerun, and the assignment happens
+                    # before widgets are created in the NEXT run.
                     st.session_state["company_input"] = fields.get("company", "") or ""
                     st.session_state["role_input"] = fields.get("role", "") or ""
                     st.session_state["location_input"] = fields.get("location", "") or ""
@@ -476,24 +478,25 @@ with tabs[0]:
                 st.error("Provide a job URL that can be fetched OR paste the job description.")
                 st.stop()
 
-            if (
-                not st.session_state["company_input"].strip()
-                or not st.session_state["role_input"].strip()
-                or not st.session_state["location_input"].strip()
-            ):
-                with st.spinner("Auto-filling Company/Role/Location…"):
+            # ✅ FIX: do NOT modify st.session_state["*_input"] here (widgets already exist this run)
+            # Instead, compute "effective" values for logging/output.
+            company_eff = (st.session_state.get("company_input") or "").strip()
+            role_eff = (st.session_state.get("role_input") or "").strip()
+            location_eff = (st.session_state.get("location_input") or "").strip()
+
+            if not company_eff or not role_eff or not location_eff:
+                with st.spinner("Auto-detecting Company/Role/Location from job post…"):
                     fields = extract_fields(job_post_text)
 
-                if not st.session_state["company_input"].strip():
-                    st.session_state["company_input"] = fields.get("company", "") or ""
-                if not st.session_state["role_input"].strip():
-                    st.session_state["role_input"] = fields.get("role", "") or ""
-                if not st.session_state["location_input"].strip():
-                    st.session_state["location_input"] = fields.get("location", "") or ""
+                company_eff = company_eff or (fields.get("company", "") or "").strip()
+                role_eff = role_eff or (fields.get("role", "") or "").strip()
+                location_eff = location_eff or (fields.get("location", "") or "").strip()
 
-                company = st.session_state["company_input"]
-                role = st.session_state["role_input"]
-                location = st.session_state["location_input"]
+                if not company_eff or not role_eff or not location_eff:
+                    st.warning(
+                        "Could not confidently detect Company/Role/Location. "
+                        "You can still generate, but logging may be incomplete."
+                    )
 
             with st.spinner("Generating…"):
                 output = generate_application_materials(
@@ -531,10 +534,10 @@ with tabs[0]:
                         user_id,
                         {
                             "Date Applied": str(date_applied),
-                            "Company": company,
-                            "Role": role,
+                            "Company": company_eff,
+                            "Role": role_eff,
                             "Job Link": job_url or "",
-                            "Location": location,
+                            "Location": location_eff,
                             "Status": status,
                             "Follow-up Date": str(follow_up_date),
                             "Contact Name": contact_name,
