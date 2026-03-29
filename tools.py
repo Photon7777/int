@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 
 # -------------------------
-# EXISTING HELPERS
+# BASIC HELPERS
 # -------------------------
 def fetch_job_post(url: str, timeout: int = 15) -> str:
     """
@@ -17,6 +17,7 @@ def fetch_job_post(url: str, timeout: int = 15) -> str:
     headers = {"User-Agent": "Mozilla/5.0"}
     r = requests.get(url, headers=headers, timeout=timeout)
     r.raise_for_status()
+
     soup = BeautifulSoup(r.text, "html.parser")
 
     for tag in soup(["script", "style", "noscript"]):
@@ -74,6 +75,11 @@ def _normalize_text(text: str) -> str:
 
 
 def _extract_keywords(text: str) -> List[str]:
+    """
+    Hybrid keyword extraction:
+    1. Keep known key phrases if present.
+    2. Add informative single tokens.
+    """
     text_norm = _normalize_text(text)
     found = []
 
@@ -83,11 +89,12 @@ def _extract_keywords(text: str) -> List[str]:
 
     tokens = re.findall(r"\b[a-zA-Z][a-zA-Z0-9\+\#\.-]{1,}\b", text_norm)
     token_counts = {}
+
     for tok in tokens:
         tok = tok.lower().strip()
         if tok in STOPWORDS:
             continue
-        if len(tok) < 3 and tok not in {"r", "c++", "bi"}:
+        if len(tok) < 3 and tok not in {"r", "bi"}:
             continue
         if tok.isdigit():
             continue
@@ -112,6 +119,17 @@ def _priority_from_score(score: int) -> str:
 
 
 def analyze_fit(job_post_text: str, resume_text: str) -> Dict:
+    """
+    Heuristic keyword-based fit scoring.
+    Returns:
+      {
+        "score": int,
+        "priority": str,
+        "summary": str,
+        "matched_skills": list[str],
+        "missing_skills": list[str],
+      }
+    """
     job_keywords = _extract_keywords(job_post_text)
     resume_keywords = set(_extract_keywords(resume_text))
 
@@ -154,6 +172,15 @@ def analyze_fit(job_post_text: str, resume_text: str) -> Dict:
 # RESUME RANKING
 # -------------------------
 def rank_resume_versions(job_post_text: str, resume_payloads: List[Dict]) -> List[Dict]:
+    """
+    Input:
+      resume_payloads = [
+        {"resume_id": "...", "name": "...", "resume_text": "..."},
+        ...
+      ]
+    Output:
+      sorted list with score/priority/summary added
+    """
     ranked = []
 
     for item in resume_payloads or []:
@@ -187,7 +214,11 @@ def _parse_date_maybe(value: str):
         return None
 
 
-def recommend_follow_up_action(status: str, follow_up_date: str, today: Optional[date] = None) -> str:
+def recommend_follow_up_action(
+    status: str,
+    follow_up_date: str,
+    today: Optional[date] = None,
+) -> str:
     today = today or date.today()
     status_clean = (status or "").strip()
     follow_dt = _parse_date_maybe(follow_up_date)
