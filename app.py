@@ -50,121 +50,186 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# -------------------------
+# GLOBAL STYLES
+# -------------------------
 st.markdown(
     """
     <style>
+      /* ---------- Hide Streamlit chrome ---------- */
+      #MainMenu {visibility: hidden;}
+      footer {visibility: hidden;}
+      header {visibility: hidden;}
+
+      header[data-testid="stHeader"] {
+          height: 0px;
+      }
+
+      div[data-testid="stToolbar"] {
+          visibility: hidden;
+          height: 0%;
+          position: fixed;
+      }
+
+      /* ---------- App shell ---------- */
+      html, body, [class*="css"] {
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .stApp {
+        background:
+          radial-gradient(circle at top left, rgba(59,130,246,0.12), transparent 28%),
+          radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 24%),
+          linear-gradient(180deg, #051225 0%, #07172d 42%, #071426 100%);
+      }
+
       .block-container {
-        padding-top: 1.2rem;
-        padding-bottom: 2.25rem;
-        max-width: 1280px;
+        padding-top: 1.25rem !important;
+        padding-bottom: 2.5rem;
+        max-width: 1320px;
       }
 
       section[data-testid="stSidebar"] {
-        padding-top: 1rem;
+        top: 0px;
         border-right: 1px solid rgba(255,255,255,0.06);
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+        backdrop-filter: blur(10px);
       }
 
       h1, h2, h3 {
         letter-spacing: -0.02em;
       }
 
+      /* ---------- Top brand bar ---------- */
       .topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 1rem;
+        margin-bottom: 0.85rem;
+        gap: 1rem;
       }
 
       .brand-wrap {
         display: flex;
         align-items: center;
-        gap: 0.85rem;
+        gap: 0.9rem;
       }
 
       .brand-badge {
-        width: 46px;
-        height: 46px;
-        border-radius: 14px;
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.15rem;
-        background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(99,102,241,0.20));
-        border: 1px solid rgba(255,255,255,0.10);
-        box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+        font-size: 1.2rem;
+        background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(59,130,246,0.18));
+        border: 1px solid rgba(255,255,255,0.12);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.20);
       }
 
       .brand-title {
-        font-size: 1.5rem;
+        font-size: 1.6rem;
         font-weight: 800;
-        line-height: 1.05;
+        line-height: 1.02;
         letter-spacing: -0.03em;
+        color: #f8fafc;
       }
 
       .brand-subtitle {
-        font-size: 0.93rem;
-        color: rgba(255,255,255,0.68);
-        margin-top: 0.08rem;
+        font-size: 0.95rem;
+        color: rgba(255,255,255,0.66);
+        margin-top: 0.1rem;
       }
 
+      .nav-chip-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+
+      .nav-chip {
+        padding: 0.45rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        color: rgba(255,255,255,0.76);
+        font-size: 0.84rem;
+      }
+
+      /* ---------- Hero ---------- */
       .hero {
         border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 24px;
-        padding: 24px 24px 22px 24px;
+        border-radius: 26px;
+        padding: 28px 28px 24px 28px;
         background:
-          radial-gradient(circle at top left, rgba(59,130,246,0.20), transparent 38%),
-          radial-gradient(circle at top right, rgba(16,185,129,0.12), transparent 34%),
-          linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+          radial-gradient(circle at top left, rgba(59,130,246,0.20), transparent 34%),
+          radial-gradient(circle at top right, rgba(16,185,129,0.12), transparent 28%),
+          linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025));
         margin-bottom: 1.15rem;
-        box-shadow: 0 14px 40px rgba(0,0,0,0.16);
+        box-shadow: 0 18px 50px rgba(0,0,0,0.20);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+        opacity: 0.6;
       }
 
       .hero-eyebrow {
         font-size: 0.8rem;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: rgba(255,255,255,0.62);
+        letter-spacing: 0.14em;
+        color: rgba(255,255,255,0.60);
         margin-bottom: 0.45rem;
       }
 
       .hero-title {
-        font-size: 2rem;
+        font-size: 2.15rem;
         font-weight: 800;
-        line-height: 1.08;
-        max-width: 860px;
-        margin-bottom: 0.6rem;
+        line-height: 1.04;
+        max-width: 900px;
+        margin-bottom: 0.7rem;
+        color: #f8fafc;
       }
 
       .hero-copy {
         font-size: 1rem;
-        line-height: 1.55;
-        color: rgba(255,255,255,0.76);
-        max-width: 900px;
+        line-height: 1.58;
+        color: rgba(255,255,255,0.78);
+        max-width: 920px;
       }
 
       .hero-pills {
         margin-top: 1rem;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        gap: 0.55rem;
       }
 
       .hero-pill {
         display: inline-block;
-        padding: 0.34rem 0.7rem;
+        padding: 0.4rem 0.78rem;
         border-radius: 999px;
         font-size: 0.83rem;
         border: 1px solid rgba(255,255,255,0.10);
         background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.82);
       }
 
+      /* ---------- Cards ---------- */
       .card {
         border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 18px;
+        border-radius: 20px;
         padding: 16px 18px;
-        background: rgba(255,255,255,0.035);
-        margin-bottom: 0.85rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.10);
+        background: rgba(255,255,255,0.04);
+        margin-bottom: 0.9rem;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.10);
       }
 
       .soft-card {
@@ -173,6 +238,12 @@ st.markdown(
         padding: 14px 16px;
         background: rgba(255,255,255,0.03);
         margin-bottom: 0.75rem;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      .soft-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(0,0,0,0.12);
       }
 
       .muted {
@@ -189,9 +260,10 @@ st.markdown(
         text-transform: uppercase;
         letter-spacing: 0.10em;
         color: rgba(255,255,255,0.55);
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.28rem;
       }
 
+      /* ---------- Alerts ---------- */
       .alert {
         border-radius: 18px;
         padding: 13px 15px;
@@ -201,12 +273,12 @@ st.markdown(
       }
 
       .alert-danger {
-        border-color: rgba(239, 68, 68, 0.42);
+        border-color: rgba(239, 68, 68, 0.40);
         background: rgba(239, 68, 68, 0.10);
       }
 
       .alert-warn {
-        border-color: rgba(245, 158, 11, 0.42);
+        border-color: rgba(245, 158, 11, 0.40);
         background: rgba(245, 158, 11, 0.10);
       }
 
@@ -215,6 +287,7 @@ st.markdown(
         background: rgba(34, 197, 94, 0.08);
       }
 
+      /* ---------- Pills ---------- */
       .pill {
         display:inline-block;
         padding: 0.22rem 0.62rem;
@@ -234,12 +307,12 @@ st.markdown(
       .pill-rejected   { border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.14); }
       .pill-ghosted    { border-color: rgba(148, 163, 184, 0.40); background: rgba(148, 163, 184, 0.10); }
 
+      /* ---------- Agent panel ---------- */
       .agent-card {
         border: 1px solid rgba(99,102,241,0.22);
-        border-radius: 20px;
+        border-radius: 22px;
         padding: 18px 18px;
-        background:
-          linear-gradient(180deg, rgba(99,102,241,0.09), rgba(99,102,241,0.05));
+        background: linear-gradient(180deg, rgba(99,102,241,0.09), rgba(99,102,241,0.045));
         margin: 0.8rem 0 1rem 0;
         box-shadow: 0 12px 30px rgba(0,0,0,0.12);
       }
@@ -248,8 +321,10 @@ st.markdown(
         font-size: 1rem;
         font-weight: 700;
         letter-spacing: -0.01em;
+        color: #f8fafc;
       }
 
+      /* ---------- Tracker cards ---------- */
       .rowcard {
         border-radius: 18px;
         padding: 13px 15px;
@@ -268,11 +343,18 @@ st.markdown(
         background: rgba(245, 158, 11, 0.08);
       }
 
+      /* ---------- Inputs and buttons ---------- */
       div.stButton > button,
       div.stDownloadButton > button {
         border-radius: 14px;
-        padding: 0.62rem 1rem;
+        padding: 0.65rem 1rem;
         border: 1px solid rgba(255,255,255,0.12);
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      }
+
+      div.stButton > button:hover,
+      div.stDownloadButton > button:hover {
+        border-color: rgba(255,255,255,0.18);
       }
 
       div.stTextInput > div > div > input,
@@ -282,10 +364,11 @@ st.markdown(
         border-radius: 14px !important;
       }
 
+      /* ---------- Metrics and data widgets ---------- */
       [data-testid="stMetric"] {
-        background: rgba(255,255,255,0.035);
+        background: rgba(255,255,255,0.04);
         border: 1px solid rgba(255,255,255,0.08);
-        padding: 0.9rem 0.95rem;
+        padding: 0.95rem 1rem;
         border-radius: 18px;
       }
 
@@ -294,9 +377,15 @@ st.markdown(
         overflow: hidden;
       }
 
+      /* ---------- Tabs ---------- */
+      button[data-baseweb="tab"] {
+        font-weight: 600;
+      }
+
+      /* ---------- Responsive ---------- */
       @media (max-width: 900px) {
         .hero-title {
-          font-size: 1.45rem;
+          font-size: 1.55rem;
         }
         .brand-title {
           font-size: 1.28rem;
@@ -307,6 +396,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# -------------------------
+# BRAND BAR
+# -------------------------
 st.markdown(
     """
     <div class="topbar">
@@ -316,6 +408,11 @@ st.markdown(
           <div class="brand-title">NextRole</div>
           <div class="brand-subtitle">AI career operations agent for smarter applications</div>
         </div>
+      </div>
+      <div class="nav-chip-row">
+        <div class="nav-chip">Fit scoring</div>
+        <div class="nav-chip">Resume intelligence</div>
+        <div class="nav-chip">Application workflow</div>
       </div>
     </div>
     """,
