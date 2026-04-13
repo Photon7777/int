@@ -29,12 +29,15 @@ from company_discovery import (
     sponsorship_signal_for_company,
 )
 from dashboard_metrics import (
+    build_dashboard_trend_badges,
     build_fit_outcome_df,
     build_follow_up_timeline_df,
     build_pipeline_funnel_df,
     build_resume_performance_df,
     build_weekly_activity_df,
     build_weekly_momentum_summary,
+    filter_tracker_rows,
+    pick_best_resume_summary,
 )
 from db_store import merge_visible_tracker_edits
 from gmail_sender import GMAIL_CONNECT_SCOPES, GmailSender
@@ -188,6 +191,41 @@ class DashboardMetricTests(unittest.TestCase):
         self.assertEqual(counts["Today"], 1)
         self.assertEqual(counts["Next 3 days"], 0)
         self.assertEqual(counts["Next 7 days"], 1)
+
+    def test_pick_best_resume_summary_prefers_reliable_resume(self):
+        resume_df = build_resume_performance_df(self.df)
+
+        summary = pick_best_resume_summary(resume_df)
+
+        self.assertEqual(summary["Resume"], "Data Resume")
+        self.assertEqual(summary["Applications"], 2)
+        self.assertEqual(summary["Interview Rate"], 50.0)
+
+    def test_build_dashboard_trend_badges_returns_core_badges(self):
+        weekly = build_weekly_momentum_summary(self.df, today=date(2026, 4, 10))
+        funnel = build_pipeline_funnel_df(self.df)
+        timeline = build_follow_up_timeline_df(self.df, today=date(2026, 4, 10))
+        resume_df = build_resume_performance_df(self.df)
+
+        badges = build_dashboard_trend_badges(weekly, funnel, timeline, resume_df)
+        labels = [badge["label"] for badge in badges]
+
+        self.assertEqual(labels, ["Application pace", "Follow-up pressure", "Applied to interview", "Next 7 days", "Best resume"])
+        self.assertEqual(badges[0]["value"], "Down 1 vs last week")
+        self.assertEqual(badges[3]["value"], "3 follow-up item(s)")
+
+    def test_filter_tracker_rows_supports_followup_and_fit_bands(self):
+        filtered = filter_tracker_rows(
+            self.df.assign(
+                _overdue=[False, False, True, False, True],
+                _due_today=[False, True, False, False, False],
+            ),
+            status_filter=["Applied", "Interview", "Rejected"],
+            followup_filter="Overdue only",
+            fit_filter="Needs review (<65)",
+        )
+
+        self.assertEqual(filtered["Company"].tolist(), ["Echo"])
 
 
 class AuthValidationTests(unittest.TestCase):

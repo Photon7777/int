@@ -11,6 +11,7 @@ STATUS_COLOR_DOMAIN = ["Interested", "Applied", "OA", "Interview", "Offer", "Rej
 STATUS_COLOR_RANGE = ["#38bdf8", "#60a5fa", "#a78bfa", "#f59e0b", "#22c55e", "#ef4444", "#94a3b8", "#64748b"]
 FOLLOW_UP_BUCKET_ORDER = ["Overdue", "Today", "Next 3 days", "Next 7 days", "Later"]
 FOLLOW_UP_BUCKET_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#38bdf8", "#64748b"]
+FIT_FILTER_OPTIONS = ["All", "Strong fit (80+)", "Moderate fit (65-79)", "Needs review (<65)", "Unscored"]
 CLOSED_STATUSES = {"Offer", "Rejected"}
 STATUS_DEPTH_MAP = {
     "Rejected": 0,
@@ -173,6 +174,22 @@ def build_resume_performance_df(df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values(["Applications", "Interviews", "Offers", "Interview Rate"], ascending=[False, False, False, False])
 
 
+def pick_best_resume_summary(resume_performance_df: pd.DataFrame) -> dict[str, object] | None:
+    if resume_performance_df.empty:
+        return None
+
+    reliable = resume_performance_df[resume_performance_df["Applications"] >= 2].copy()
+    candidate = reliable if not reliable.empty else resume_performance_df
+    row = candidate.sort_values(["Interview Rate", "Applications"], ascending=[False, False]).iloc[0]
+    return {
+        "Resume": str(row["Resume"]),
+        "Applications": int(row["Applications"]),
+        "Interviews": int(row["Interviews"]),
+        "Offers": int(row["Offers"]),
+        "Interview Rate": float(row["Interview Rate"]),
+    }
+
+
 def build_follow_up_timeline_df(df: pd.DataFrame, today: date | None = None) -> pd.DataFrame:
     current_day = today or date.today()
     follow_up_dates = _date_series(df, "Follow-up Date")
@@ -203,3 +220,125 @@ def build_follow_up_timeline_df(df: pd.DataFrame, today: date | None = None) -> 
             }
         )
     return pd.DataFrame(rows)
+
+
+def build_dashboard_trend_badges(
+    weekly_momentum: dict[str, int | str],
+    funnel_df: pd.DataFrame,
+    follow_up_timeline_df: pd.DataFrame,
+    resume_performance_df: pd.DataFrame,
+) -> list[dict[str, str]]:
+    app_delta = int(weekly_momentum["applications_this_week"]) - int(weekly_momentum["applications_last_week"])
+    if app_delta > 0:
+        app_badge = {
+            "label": "Application pace",
+            "value": f"Up {app_delta} vs last week",
+            "tone": "positive",
+        }
+    elif app_delta < 0:
+        app_badge = {
+            "label": "Application pace",
+            "value": f"Down {abs(app_delta)} vs last week",
+            "tone": "warn",
+        }
+    else:
+        app_badge = {
+            "label": "Application pace",
+            "value": "Flat week over week",
+            "tone": "neutral",
+        }
+
+    followup_delta = int(weekly_momentum["followups_this_week"]) - int(weekly_momentum["followups_last_week"])
+    if followup_delta > 0:
+        followup_badge = {
+            "label": "Follow-up pressure",
+            "value": f"{followup_delta} more due this week",
+            "tone": "warn",
+        }
+    elif followup_delta < 0:
+        followup_badge = {
+            "label": "Follow-up pressure",
+            "value": f"{abs(followup_delta)} fewer due this week",
+            "tone": "positive",
+        }
+    else:
+        followup_badge = {
+            "label": "Follow-up pressure",
+            "value": "Steady vs last week",
+            "tone": "neutral",
+        }
+
+    applied_count = int(funnel_df.loc[funnel_df["Stage"] == "Applied", "Count"].iloc[0]) if not funnel_df.empty else 0
+    interview_count = int(funnel_df.loc[funnel_df["Stage"] == "Interview", "Count"].iloc[0]) if not funnel_df.empty else 0
+    applied_to_interview = round((interview_count / applied_count) * 100, 1) if applied_count else 0.0
+    conversion_badge = {
+        "label": "Applied to interview",
+        "value": f"{applied_to_interview}% conversion",
+        "tone": "accent" if applied_to_interview >= 20 else "neutral",
+    }
+
+    next_seven_days = int(
+        follow_up_timeline_df[
+            follow_up_timeline_df["Bucket"].isin(["Overdue", "Today", "Next 3 days", "Next 7 days"])
+        ]["Count"].sum()
+    )
+    workload_badge = {
+        "label": "Next 7 days",
+        "value": f"{next_seven_days} follow-up item(s)",
+        "tone": "warn" if next_seven_days > 0 else "positive",
+    }
+
+    best_resume = pick_best_resume_summary(resume_performance_df)
+    if best_resume:
+        resume_badge = {
+            "label": "Best resume",
+            "value": f"{best_resume['Resume']} · {best_resume['Interview Rate']:.1f}% interview rate",
+            "tone": "accent",
+        }
+    else:
+        resume_badge = {
+            "label": "Best resume",
+            "value": "Log resume usage to compare versions",
+            "tone": "neutral",
+        }
+
+    return [app_badge, followup_badge, conversion_badge, workload_badge, resume_badge]
+
+
+def filter_tracker_rows(
+    df: pd.DataFrame,
+    *,
+    status_filter: list[str] | None = None,
+    priority_filter: list[str] | None = None,
+    company_search: str = "",
+    role_search: str = "",
+    followup_filter: str = "All",
+    fit_filter: str = "All",
+) -> pd.DataFrame:
+    filtered = df.copy()
+
+    if status_filter:
+        filtered = filtered[filtered["Status"].isin(status_filter)]
+    if priority_filter:
+        filtered = filtered[filtered["Priority"].isin(priority_filter)]
+    if company_search:
+        filtered = filtered[filtered["Company"].astype(str).str.contains(company_search, case=False, na=False)]
+    if role_search:
+        filtered = filtered[filtered["Role"].astype(str).str.contains(role_search, case=False, na=False)]
+
+    if followup_filter == "Overdue only":
+        filtered = filtered[filtered["_overdue"]]
+    elif followup_filter == "Due today only":
+        filtered = filtered[filtered["_due_today"]]
+
+    fit_numeric = pd.to_numeric(filtered.get("Fit Score", pd.Series([], dtype=str)), errors="coerce")
+    if fit_filter == "Strong fit (80+)":
+        filtered = filtered[fit_numeric >= 80]
+    elif fit_filter == "Moderate fit (65-79)":
+        filtered = filtered[(fit_numeric >= 65) & (fit_numeric < 80)]
+    elif fit_filter == "Needs review (<65)":
+        filtered = filtered[fit_numeric < 65]
+    elif fit_filter == "Unscored":
+        filtered = filtered[fit_numeric.isna()]
+
+    return filtered

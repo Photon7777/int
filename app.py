@@ -33,18 +33,22 @@ from agent import (
 )
 from company_discovery import company_key, discover_companies_from_web, sponsorship_signal_for_company
 from dashboard_metrics import (
+    FIT_FILTER_OPTIONS,
     FOLLOW_UP_BUCKET_COLORS,
     FOLLOW_UP_BUCKET_ORDER,
     FUNNEL_STAGE_ORDER,
     STATUS_COLOR_DOMAIN,
     STATUS_COLOR_RANGE,
     STATUS_DISPLAY_ORDER,
+    build_dashboard_trend_badges,
     build_fit_outcome_df,
     build_follow_up_timeline_df,
     build_pipeline_funnel_df,
     build_resume_performance_df,
     build_weekly_activity_df,
     build_weekly_momentum_summary,
+    filter_tracker_rows,
+    pick_best_resume_summary,
 )
 from outreach_guardrails import (
     build_outreach_tracker_row,
@@ -445,6 +449,82 @@ st.markdown(
       .soft-card:hover {
         transform: translateY(-1px);
         box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+      }
+
+      .dashboard-badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.72rem;
+        margin: 0.45rem 0 0.9rem 0;
+      }
+
+      .dashboard-badge {
+        min-width: 188px;
+        flex: 1 1 188px;
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        padding: 0.85rem 0.95rem;
+        background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.025));
+        box-shadow: 0 12px 24px rgba(0,0,0,0.14);
+      }
+
+      .dashboard-badge-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(224, 231, 255, 0.62);
+        margin-bottom: 0.38rem;
+      }
+
+      .dashboard-badge-value {
+        font-size: 0.98rem;
+        font-weight: 700;
+        line-height: 1.35;
+        color: rgba(248, 250, 252, 0.95);
+      }
+
+      .dashboard-badge-positive {
+        border-color: rgba(56, 215, 193, 0.26);
+        background: linear-gradient(180deg, rgba(56,215,193,0.13), rgba(255,255,255,0.025));
+      }
+
+      .dashboard-badge-warn {
+        border-color: rgba(245, 158, 11, 0.30);
+        background: linear-gradient(180deg, rgba(245,158,11,0.13), rgba(255,255,255,0.025));
+      }
+
+      .dashboard-badge-accent {
+        border-color: rgba(124, 140, 255, 0.30);
+        background: linear-gradient(180deg, rgba(124,140,255,0.14), rgba(255,255,255,0.025));
+      }
+
+      .dashboard-badge-neutral {
+        border-color: rgba(148, 163, 184, 0.18);
+      }
+
+      .dashboard-toolbar-note {
+        font-size: 0.86rem;
+        color: rgba(226, 232, 240, 0.7);
+        margin: 0.12rem 0 0.55rem 0;
+      }
+
+      .filter-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 0.35rem 0 0.3rem 0;
+      }
+
+      .filter-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        padding: 0.42rem 0.74rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(255,255,255,0.05);
+        color: rgba(241, 245, 249, 0.88);
+        font-size: 0.82rem;
       }
 
       .muted {
@@ -1164,6 +1244,82 @@ def style_dashboard_chart(chart: alt.Chart, *, height: int = 260) -> alt.Chart:
         )
         .configure_title(color="#f8fafc", fontSize=14, anchor="start")
     )
+
+
+def render_dashboard_badges(badges: list[dict[str, str]]) -> None:
+    if not badges:
+        return
+    html = ['<div class="dashboard-badge-row">']
+    for badge in badges:
+        tone = escape(str(badge.get("tone", "neutral")))
+        label = escape(str(badge.get("label", "")))
+        value = escape(str(badge.get("value", "")))
+        html.append(
+            f'<div class="dashboard-badge dashboard-badge-{tone}">'
+            f'<div class="dashboard-badge-label">{label}</div>'
+            f'<div class="dashboard-badge-value">{value}</div>'
+            f"</div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def apply_tracker_filter_preset(preset: str) -> None:
+    state = {
+        "tracker_status_filter": [],
+        "tracker_priority_filter": [],
+        "tracker_company_search": "",
+        "tracker_role_search": "",
+        "tracker_followup_filter": "All",
+        "tracker_fit_filter": "All",
+    }
+    if preset == "applied":
+        state["tracker_status_filter"] = ["Applied"]
+    elif preset == "interview":
+        state["tracker_status_filter"] = ["Interview"]
+    elif preset == "offers":
+        state["tracker_status_filter"] = ["Offer"]
+    elif preset == "overdue":
+        state["tracker_followup_filter"] = "Overdue only"
+    elif preset == "strong_fit":
+        state["tracker_fit_filter"] = "Strong fit (80+)"
+
+    for key, value in state.items():
+        st.session_state[key] = value
+
+
+def render_active_tracker_filters(
+    *,
+    status_filter: list[str],
+    priority_filter: list[str],
+    company_search: str,
+    role_search: str,
+    followup_filter: str,
+    fit_filter: str,
+) -> None:
+    chips: list[str] = []
+    if status_filter:
+        chips.append(f"Status: {', '.join(status_filter)}")
+    if priority_filter:
+        chips.append(f"Priority: {', '.join(priority_filter)}")
+    if company_search:
+        chips.append(f"Company: {company_search}")
+    if role_search:
+        chips.append(f"Role: {role_search}")
+    if followup_filter != "All":
+        chips.append(f"Follow-up: {followup_filter}")
+    if fit_filter != "All":
+        chips.append(f"Fit: {fit_filter}")
+
+    if not chips:
+        st.caption("No active filters. The full pipeline is shown below.")
+        return
+
+    html = ['<div class="filter-chip-row">']
+    for chip in chips:
+        html.append(f'<span class="filter-chip">{chip}</span>')
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 
 def _query_param_str(name: str) -> str:
@@ -3289,13 +3445,51 @@ with tabs[2]:
     fit_outcome_df = build_fit_outcome_df(df)
     resume_performance_df = build_resume_performance_df(df)
     follow_up_timeline_df = build_follow_up_timeline_df(df, today=today)
+    best_resume_summary = pick_best_resume_summary(resume_performance_df)
+    dashboard_badges = build_dashboard_trend_badges(
+        weekly_momentum,
+        funnel_df,
+        follow_up_timeline_df,
+        resume_performance_df,
+    )
+    applied_count = int((df["Status"].astype(str) == "Applied").sum())
+    interview_count = int((df["Status"].astype(str) == "Interview").sum())
+    offer_count = int((df["Status"].astype(str) == "Offer").sum())
+    high_fit_count = int((fit_numeric >= 80).sum()) if fit_numeric.notna().any() else 0
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Total", len(df))
-    m2.metric("Applied", int((df["Status"].astype(str) == "Applied").sum()))
-    m3.metric("Interview", int((df["Status"].astype(str) == "Interview").sum()))
-    m4.metric("Offers", int((df["Status"].astype(str) == "Offer").sum()))
+    m2.metric("Applied", applied_count)
+    m3.metric("Interview", interview_count)
+    m4.metric("Offers", offer_count)
     m5.metric("Overdue", overdue_count)
     m6.metric("Avg fit", avg_fit if avg_fit is not None else "—")
+    render_dashboard_badges(dashboard_badges)
+    st.markdown('<div class="dashboard-toolbar-note">Click a quick view to prefilter the tracker table below.</div>', unsafe_allow_html=True)
+    q1, q2, q3, q4, q5, q6 = st.columns(6)
+    with q1:
+        if st.button(f"All • {len(df)}", key="tracker_preset_all", use_container_width=True):
+            apply_tracker_filter_preset("all")
+            st.rerun()
+    with q2:
+        if st.button(f"Applied • {applied_count}", key="tracker_preset_applied", use_container_width=True):
+            apply_tracker_filter_preset("applied")
+            st.rerun()
+    with q3:
+        if st.button(f"Interview • {interview_count}", key="tracker_preset_interview", use_container_width=True):
+            apply_tracker_filter_preset("interview")
+            st.rerun()
+    with q4:
+        if st.button(f"Offers • {offer_count}", key="tracker_preset_offers", use_container_width=True):
+            apply_tracker_filter_preset("offers")
+            st.rerun()
+    with q5:
+        if st.button(f"Overdue • {overdue_count}", key="tracker_preset_overdue", use_container_width=True):
+            apply_tracker_filter_preset("overdue")
+            st.rerun()
+    with q6:
+        if st.button(f"Strong Fit • {high_fit_count}", key="tracker_preset_strong_fit", use_container_width=True):
+            apply_tracker_filter_preset("strong_fit")
+            st.rerun()
 
     st.markdown("#### ⚡ Weekly momentum")
     week_label = f"{weekly_momentum['week_start']} to {weekly_momentum['week_end']}"
@@ -3370,9 +3564,9 @@ with tabs[2]:
             fontWeight="bold",
         ).encode(text="Label:N")
         st.altair_chart(style_dashboard_chart(funnel_chart + funnel_labels, height=250), use_container_width=True)
-        applied_count = int(funnel_df.loc[funnel_df["Stage"] == "Applied", "Count"].iloc[0]) if not funnel_df.empty else 0
-        interview_count = int(funnel_df.loc[funnel_df["Stage"] == "Interview", "Count"].iloc[0]) if not funnel_df.empty else 0
-        applied_to_interview = round((interview_count / applied_count) * 100, 1) if applied_count else 0.0
+        funnel_applied_count = int(funnel_df.loc[funnel_df["Stage"] == "Applied", "Count"].iloc[0]) if not funnel_df.empty else 0
+        funnel_interview_count = int(funnel_df.loc[funnel_df["Stage"] == "Interview", "Count"].iloc[0]) if not funnel_df.empty else 0
+        applied_to_interview = round((funnel_interview_count / funnel_applied_count) * 100, 1) if funnel_applied_count else 0.0
         st.caption(f"Applied to interview conversion in the current tracker: {applied_to_interview}%.")
 
     with health_right:
@@ -3479,15 +3673,9 @@ with tabs[2]:
             )
             resume_chart_height = max(220, len(ordered_resumes) * 56)
             st.altair_chart(style_dashboard_chart(resume_chart, height=resume_chart_height), use_container_width=True)
-            reliable_resumes = resume_performance_df[resume_performance_df["Applications"] >= 2].copy()
-            best_resume_row = (
-                reliable_resumes.sort_values(["Interview Rate", "Applications"], ascending=[False, False]).iloc[0]
-                if not reliable_resumes.empty
-                else resume_performance_df.iloc[0]
-            )
             st.caption(
-                f"Strongest tracked resume so far: {best_resume_row['Resume']} "
-                f"({best_resume_row['Interview Rate']}% interview rate across {best_resume_row['Applications']} applications)."
+                f"Strongest tracked resume so far: {best_resume_summary['Resume']} "
+                f"({best_resume_summary['Interview Rate']:.1f}% interview rate across {best_resume_summary['Applications']} applications)."
             )
 
     st.markdown("#### 🚀 Top Opportunities")
@@ -3533,16 +3721,10 @@ with tabs[2]:
         i3.metric("Follow-ups due", due_today_count + overdue_count)
         i4.metric("Applications this week", weekly_momentum["applications_this_week"])
 
-        if not resume_performance_df.empty:
-            reliable_resumes = resume_performance_df[resume_performance_df["Applications"] >= 2].copy()
-            best_resume_row = (
-                reliable_resumes.sort_values(["Interview Rate", "Applications"], ascending=[False, False]).iloc[0]
-                if not reliable_resumes.empty
-                else resume_performance_df.iloc[0]
-            )
+        if best_resume_summary:
             st.caption(
-                f"Best performing resume in the tracker: {best_resume_row['Resume']} "
-                f"with an interview rate of {best_resume_row['Interview Rate']}%."
+                f"Best performing resume in the tracker: {best_resume_summary['Resume']} "
+                f"with an interview rate of {best_resume_summary['Interview Rate']:.1f}%."
             )
         else:
             st.caption("Resume usage insights will appear once applications are logged with an active resume.")
@@ -3590,37 +3772,56 @@ with tabs[2]:
 
     st.divider()
 
-    st.markdown("#### 🔎 Filter")
-    f1, f2, f3, f4, f5 = st.columns(5)
+    st.markdown("#### 🔎 Table filters")
+    st.caption("Use the controls below for precise views, or start with the quick filters above.")
+    f1, f2, f3, f4, f5, f6 = st.columns(6)
     with f1:
         statuses = sorted([s for s in df["Status"].dropna().unique().tolist() if str(s).strip() != ""])
-        status_filter = st.multiselect("Status", statuses)
+        status_filter = st.multiselect("Status", statuses, key="tracker_status_filter")
     with f2:
         priorities = sorted([p for p in df.get("Priority", pd.Series([], dtype=str)).dropna().unique().tolist() if str(p).strip() != ""])
-        priority_filter = st.multiselect("Priority", priorities)
+        priority_filter = st.multiselect("Priority", priorities, key="tracker_priority_filter")
     with f3:
-        company_search = st.text_input("Company contains")
+        company_search = st.text_input("Company contains", key="tracker_company_search")
     with f4:
-        role_search = st.text_input("Role contains")
+        role_search = st.text_input("Role contains", key="tracker_role_search")
     with f5:
-        followup_filter = st.selectbox("Follow-up", ["All", "Overdue only", "Due today only"], index=0)
+        followup_filter = st.selectbox(
+            "Follow-up",
+            ["All", "Overdue only", "Due today only"],
+            index=0,
+            key="tracker_followup_filter",
+        )
+    with f6:
+        fit_filter = st.selectbox("Fit band", FIT_FILTER_OPTIONS, index=0, key="tracker_fit_filter")
 
-    filtered = df.copy()
-    if status_filter:
-        filtered = filtered[filtered["Status"].isin(status_filter)]
-    if priority_filter:
-        filtered = filtered[filtered["Priority"].isin(priority_filter)]
-    if company_search:
-        filtered = filtered[filtered["Company"].astype(str).str.contains(company_search, case=False, na=False)]
-    if role_search:
-        filtered = filtered[filtered["Role"].astype(str).str.contains(role_search, case=False, na=False)]
+    filter_a, filter_b = st.columns([5, 1])
+    with filter_a:
+        render_active_tracker_filters(
+            status_filter=status_filter,
+            priority_filter=priority_filter,
+            company_search=company_search,
+            role_search=role_search,
+            followup_filter=followup_filter,
+            fit_filter=fit_filter,
+        )
+    with filter_b:
+        if st.button("Clear filters", key="tracker_clear_filters", use_container_width=True):
+            apply_tracker_filter_preset("all")
+            st.rerun()
 
-    if followup_filter == "Overdue only":
-        filtered = filtered[filtered["_overdue"]]
-    elif followup_filter == "Due today only":
-        filtered = filtered[filtered["_due_today"]]
+    filtered = filter_tracker_rows(
+        df,
+        status_filter=status_filter,
+        priority_filter=priority_filter,
+        company_search=company_search,
+        role_search=role_search,
+        followup_filter=followup_filter,
+        fit_filter=fit_filter,
+    )
 
     st.markdown("#### 🧾 Tracker table")
+    st.caption(f"Showing {len(filtered)} of {len(df)} tracked opportunity(ies).")
     st.markdown('<div class="card">', unsafe_allow_html=True)
 
     editor_df = filtered.drop(columns=["_followup_dt", "_due_today", "_overdue"], errors="ignore").copy()
