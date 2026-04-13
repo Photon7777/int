@@ -62,6 +62,7 @@ Optional Streamlit secrets:
 ```toml
 admin_users = ["your_username"]
 DATABASE_URL = "postgresql://..."
+HUNTER_API_KEY = "..."
 ```
 
 Run the app:
@@ -74,6 +75,7 @@ streamlit run app.py
 
 - Use Postgres-compatible storage such as Neon, Render Postgres, Railway Postgres, or Supabase Postgres.
 - Store `DATABASE_URL`, `OPENAI_API_KEY`, `HUNTER_API_KEY`, `GMAIL_CLIENT_SECRET_FILE`, `GMAIL_OAUTH_REDIRECT_URI`, and `GMAIL_TOKEN_ENCRYPTION_KEY` in deployment secrets.
+- `HunterClient` now reads `HUNTER_API_KEY` from either environment variables or Streamlit secrets, which is important for Streamlit Cloud deployments.
 - Do not commit `.env`, Streamlit secrets, Gmail tokens, Google client-secret JSON files, local DB files, or runtime tracker artifacts.
 - Each app user now connects their own Gmail account from Account settings, and the encrypted OAuth token is stored in Postgres.
 - The redirect URI configured in Google Cloud must match `GMAIL_OAUTH_REDIRECT_URI`.

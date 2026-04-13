@@ -16,6 +16,21 @@ class HunterAPIError(Exception):
     """Raised when the Hunter API returns an error or invalid response."""
 
 
+def _secret_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        import streamlit as st
+
+        secret_value = st.secrets.get(name)
+        if secret_value:
+            return str(secret_value).strip()
+    except Exception:
+        pass
+    return ""
+
+
 @dataclass
 class _CacheEntry:
     expires_at: float
@@ -121,11 +136,13 @@ class HunterClient:
         cache_ttl_seconds: int = 3600,
         max_cache_items: int = 512,
     ):
-        self.api_key = api_key or os.getenv("HUNTER_API_KEY")
+        self.api_key = api_key or _secret_value("HUNTER_API_KEY")
         self.timeout = timeout
 
         if not self.api_key:
-            raise HunterAPIError("Missing HUNTER_API_KEY. Add it to your environment or .env file.")
+            raise HunterAPIError(
+                "Missing HUNTER_API_KEY. Add it to your environment, .env file, or Streamlit secrets."
+            )
 
         self.session = requests.Session()
         self.session.headers.update(

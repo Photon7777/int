@@ -1,6 +1,9 @@
 import os
+import sys
 import unittest
 from datetime import date, timedelta
+from types import SimpleNamespace
+from unittest import mock
 
 import pandas as pd
 
@@ -254,6 +257,21 @@ class OutreachHelperTests(unittest.TestCase):
             HunterClient.normalize_seniorities(["intern", "manager", "vp", "unknown"]),
             ["junior", "senior", "executive"],
         )
+
+    def test_hunter_client_reads_api_key_from_streamlit_secrets(self):
+        previous = os.environ.get("HUNTER_API_KEY")
+        os.environ.pop("HUNTER_API_KEY", None)
+        fake_streamlit = SimpleNamespace(secrets={"HUNTER_API_KEY": "hunter-from-secrets"})
+        try:
+            with mock.patch.dict(sys.modules, {"streamlit": fake_streamlit}):
+                client = HunterClient()
+        finally:
+            if previous is None:
+                os.environ.pop("HUNTER_API_KEY", None)
+            else:
+                os.environ["HUNTER_API_KEY"] = previous
+
+        self.assertEqual(client.api_key, "hunter-from-secrets")
 
     def test_gmail_recipient_normalization(self):
         self.assertEqual(
