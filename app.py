@@ -1,8 +1,10 @@
+import base64
 import io
 import os
 import re
 import mimetypes
 from html import escape
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -83,13 +85,31 @@ from gmail_sender import GmailSendError, GmailSender
 load_dotenv()
 
 MAX_EMAILS_PER_BATCH = int(os.getenv("MAX_EMAILS_PER_BATCH", "25"))
+APP_DIR = Path(__file__).resolve().parent
+LOGO_PATH = APP_DIR / "assets" / "nextrole-logo.svg"
+
+
+def file_to_data_uri(path: Path, mime_type: str) -> str:
+    try:
+        return f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    except Exception:
+        return ""
+
+
+LOGO_DATA_URI = file_to_data_uri(LOGO_PATH, "image/svg+xml") if LOGO_PATH.exists() else ""
+PAGE_ICON = str(LOGO_PATH) if LOGO_PATH.exists() else "🎯"
+LOGO_MARKUP = (
+    f'<img src="{LOGO_DATA_URI}" alt="NextRole logo" class="brand-logo" />'
+    if LOGO_DATA_URI
+    else '<span class="brand-fallback">NR</span>'
+)
 
 # -------------------------
 # PAGE CONFIG
 # -------------------------
 st.set_page_config(
     page_title="NextRole",
-    page_icon="🎯",
+    page_icon=PAGE_ICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -100,6 +120,24 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+      :root {
+        --bg-0: #030816;
+        --bg-1: #071527;
+        --bg-2: #0a1c33;
+        --panel: rgba(9, 20, 38, 0.78);
+        --panel-strong: rgba(11, 24, 44, 0.92);
+        --panel-soft: rgba(255,255,255,0.045);
+        --stroke: rgba(148, 163, 184, 0.16);
+        --stroke-strong: rgba(148, 163, 184, 0.24);
+        --text-main: #f8fafc;
+        --text-muted: rgba(226, 232, 240, 0.74);
+        --accent: #7c8cff;
+        --accent-2: #42c8ff;
+        --accent-3: #38d7c1;
+        --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.34);
+        --shadow-md: 0 16px 34px rgba(0, 0, 0, 0.22);
+      }
+
       /* ---------- Hide Streamlit chrome ---------- */
       #MainMenu {visibility: hidden;}
       footer {visibility: hidden;}
@@ -122,26 +160,35 @@ st.markdown(
 
       .stApp {
         background:
-          radial-gradient(circle at top left, rgba(59,130,246,0.12), transparent 28%),
-          radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 24%),
-          linear-gradient(180deg, #051225 0%, #07172d 42%, #071426 100%);
+          radial-gradient(circle at top left, rgba(124,140,255,0.16), transparent 24%),
+          radial-gradient(circle at 85% 10%, rgba(66,200,255,0.13), transparent 22%),
+          radial-gradient(circle at 20% 85%, rgba(56,215,193,0.09), transparent 20%),
+          linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 40%, #081326 100%);
+        color: var(--text-main);
       }
 
       .block-container {
-        padding-top: 1.25rem !important;
-        padding-bottom: 2.5rem;
+        padding-top: 1rem !important;
+        padding-bottom: 2.8rem;
         max-width: 1320px;
       }
 
       section[data-testid="stSidebar"] {
         top: 0px;
-        border-right: 1px solid rgba(255,255,255,0.06);
-        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
-        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(148, 163, 184, 0.10);
+        background:
+          radial-gradient(circle at top, rgba(124,140,255,0.12), transparent 24%),
+          linear-gradient(180deg, rgba(9,20,38,0.92), rgba(8,18,34,0.96));
+        backdrop-filter: blur(16px);
       }
 
       h1, h2, h3 {
         letter-spacing: -0.02em;
+        color: var(--text-main);
+      }
+
+      p, label, .stCaption, .stMarkdown, .stText, .stAlert {
+        color: var(--text-muted);
       }
 
       /* ---------- Top brand bar ---------- */
@@ -149,69 +196,106 @@ st.markdown(
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 0.85rem;
+        margin-bottom: 1rem;
         gap: 1rem;
+        padding: 0.1rem 0 0.25rem 0;
       }
 
       .brand-wrap {
         display: flex;
         align-items: center;
-        gap: 0.9rem;
+        gap: 1rem;
       }
 
       .brand-badge {
-        width: 48px;
-        height: 48px;
-        border-radius: 16px;
+        width: 58px;
+        height: 58px;
+        border-radius: 20px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.2rem;
-        background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(59,130,246,0.18));
-        border: 1px solid rgba(255,255,255,0.12);
-        box-shadow: 0 10px 30px rgba(0,0,0,0.20);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+          linear-gradient(135deg, rgba(124,140,255,0.22), rgba(66,200,255,0.18));
+        border: 1px solid rgba(148, 163, 184, 0.20);
+        box-shadow: var(--shadow-md);
+      }
+
+      .brand-logo {
+        width: 36px;
+        height: 36px;
+        display: block;
+      }
+
+      .brand-fallback {
+        font-size: 1rem;
+        font-weight: 800;
+        color: var(--text-main);
+        letter-spacing: -0.04em;
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
       }
 
       .brand-title {
-        font-size: 1.6rem;
+        font-size: 1.75rem;
         font-weight: 800;
         line-height: 1.02;
         letter-spacing: -0.03em;
-        color: #f8fafc;
+        color: var(--text-main);
+      }
+
+      .brand-chip {
+        padding: 0.28rem 0.6rem;
+        border-radius: 999px;
+        border: 1px solid rgba(124, 140, 255, 0.28);
+        background: rgba(124, 140, 255, 0.10);
+        color: rgba(224, 231, 255, 0.92);
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
 
       .brand-subtitle {
         font-size: 0.95rem;
-        color: rgba(255,255,255,0.66);
-        margin-top: 0.1rem;
+        color: rgba(226, 232, 240, 0.70);
+        margin-top: 0.18rem;
+        max-width: 760px;
       }
 
       .nav-chip-row {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.55rem;
         flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .nav-chip {
-        padding: 0.45rem 0.8rem;
+        padding: 0.48rem 0.84rem;
         border-radius: 999px;
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(148, 163, 184, 0.14);
         background: rgba(255,255,255,0.04);
-        color: rgba(255,255,255,0.76);
-        font-size: 0.84rem;
+        color: rgba(241, 245, 249, 0.82);
+        font-size: 0.82rem;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
       }
 
       /* ---------- Hero ---------- */
       .hero {
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 26px;
-        padding: 28px 28px 24px 28px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 28px;
+        padding: 28px 28px 26px 28px;
         background:
-          radial-gradient(circle at top left, rgba(59,130,246,0.20), transparent 34%),
-          radial-gradient(circle at top right, rgba(16,185,129,0.12), transparent 28%),
-          linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025));
-        margin-bottom: 1.15rem;
-        box-shadow: 0 18px 50px rgba(0,0,0,0.20);
+          radial-gradient(circle at top left, rgba(124,140,255,0.22), transparent 34%),
+          radial-gradient(circle at top right, rgba(56,215,193,0.12), transparent 28%),
+          linear-gradient(180deg, rgba(10,25,48,0.88), rgba(9,21,40,0.84));
+        margin-bottom: 1.2rem;
+        box-shadow: var(--shadow-lg);
         position: relative;
         overflow: hidden;
       }
@@ -225,11 +309,18 @@ st.markdown(
         opacity: 0.6;
       }
 
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 1rem;
+        align-items: stretch;
+      }
+
       .hero-eyebrow {
         font-size: 0.8rem;
         text-transform: uppercase;
         letter-spacing: 0.14em;
-        color: rgba(255,255,255,0.60);
+        color: rgba(224, 231, 255, 0.68);
         margin-bottom: 0.45rem;
       }
 
@@ -239,13 +330,13 @@ st.markdown(
         line-height: 1.04;
         max-width: 900px;
         margin-bottom: 0.7rem;
-        color: #f8fafc;
+        color: var(--text-main);
       }
 
       .hero-copy {
         font-size: 1rem;
         line-height: 1.58;
-        color: rgba(255,255,255,0.78);
+        color: rgba(226, 232, 240, 0.82);
         max-width: 920px;
       }
 
@@ -261,26 +352,78 @@ st.markdown(
         padding: 0.4rem 0.78rem;
         border-radius: 999px;
         font-size: 0.83rem;
-        border: 1px solid rgba(255,255,255,0.10);
-        background: rgba(255,255,255,0.05);
-        color: rgba(255,255,255,0.82);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(255,255,255,0.055);
+        color: rgba(241, 245, 249, 0.84);
+      }
+
+      .hero-side {
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+        padding: 18px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .hero-side-title {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(224, 231, 255, 0.70);
+        margin-bottom: 0.8rem;
+      }
+
+      .hero-flow-item {
+        display: flex;
+        align-items: center;
+        gap: 0.72rem;
+        padding: 0.72rem 0;
+        color: rgba(241, 245, 249, 0.90);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.10);
+      }
+
+      .hero-flow-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+
+      .hero-flow-index {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        border-radius: 999px;
+        background: rgba(124, 140, 255, 0.14);
+        border: 1px solid rgba(124, 140, 255, 0.22);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #dbeafe;
+      }
+
+      .hero-flow-copy {
+        font-size: 0.92rem;
+        line-height: 1.42;
       }
 
       /* ---------- Cards ---------- */
       .card {
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 22px;
         padding: 16px 18px;
-        background: rgba(255,255,255,0.04);
+        background: linear-gradient(180deg, rgba(9,20,38,0.84), rgba(9,20,38,0.72));
         margin-bottom: 0.9rem;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.10);
+        box-shadow: var(--shadow-md);
+        backdrop-filter: blur(14px);
       }
 
       .soft-card {
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(148, 163, 184, 0.12);
         border-radius: 18px;
         padding: 14px 16px;
-        background: rgba(255,255,255,0.03);
+        background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.025));
         margin-bottom: 0.75rem;
         transition: transform 0.18s ease, box-shadow 0.18s ease;
       }
@@ -303,8 +446,38 @@ st.markdown(
         font-size: 0.78rem;
         text-transform: uppercase;
         letter-spacing: 0.10em;
-        color: rgba(255,255,255,0.55);
+        color: rgba(224, 231, 255, 0.56);
         margin-bottom: 0.28rem;
+      }
+
+      .sidebar-app-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.9rem;
+      }
+
+      .sidebar-logo-shell {
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+        border: 1px solid rgba(148, 163, 184, 0.16);
+      }
+
+      .sidebar-logo-shell .brand-logo {
+        width: 24px;
+        height: 24px;
+      }
+
+      .sidebar-app-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.1;
       }
 
       /* ---------- Alerts ---------- */
@@ -337,8 +510,8 @@ st.markdown(
         padding: 0.22rem 0.62rem;
         border-radius: 999px;
         font-size: 0.83rem;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(255,255,255,0.07);
         margin-left: 0.35rem;
         white-space: nowrap;
       }
@@ -353,12 +526,12 @@ st.markdown(
 
       /* ---------- Agent panel ---------- */
       .agent-card {
-        border: 1px solid rgba(99,102,241,0.22);
+        border: 1px solid rgba(124,140,255,0.20);
         border-radius: 22px;
         padding: 18px 18px;
-        background: linear-gradient(180deg, rgba(99,102,241,0.09), rgba(99,102,241,0.045));
+        background: linear-gradient(180deg, rgba(124,140,255,0.11), rgba(66,200,255,0.05));
         margin: 0.8rem 0 1rem 0;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+        box-shadow: var(--shadow-md);
       }
 
       .agent-title {
@@ -372,8 +545,8 @@ st.markdown(
       .rowcard {
         border-radius: 18px;
         padding: 13px 15px;
-        border: 1px solid rgba(255,255,255,0.10);
-        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(255,255,255,0.045);
         margin-bottom: 0.65rem;
       }
 
@@ -389,16 +562,33 @@ st.markdown(
 
       /* ---------- Inputs and buttons ---------- */
       div.stButton > button,
-      div.stDownloadButton > button {
-        border-radius: 14px;
-        padding: 0.65rem 1rem;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      div.stDownloadButton > button,
+      div[data-testid="stFormSubmitButton"] > button,
+      .stLinkButton > a {
+        border-radius: 14px !important;
+        padding: 0.68rem 1rem !important;
+        border: 1px solid rgba(148, 163, 184, 0.16) !important;
+        background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03)) !important;
+        color: var(--text-main) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
       }
 
       div.stButton > button:hover,
-      div.stDownloadButton > button:hover {
-        border-color: rgba(255,255,255,0.18);
+      div.stDownloadButton > button:hover,
+      div[data-testid="stFormSubmitButton"] > button:hover,
+      .stLinkButton > a:hover {
+        border-color: rgba(124, 140, 255, 0.34) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 14px 28px rgba(0,0,0,0.16);
+      }
+
+      div.stButton > button[kind="primary"],
+      div[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+        background: linear-gradient(135deg, rgba(124,140,255,0.92), rgba(66,200,255,0.86)) !important;
+        border-color: rgba(124, 140, 255, 0.30) !important;
+        color: #04111f !important;
+        font-weight: 700 !important;
       }
 
       div.stTextInput > div > div > input,
@@ -406,33 +596,98 @@ st.markdown(
       div[data-baseweb="select"] > div,
       div.stDateInput > div > div input {
         border-radius: 14px !important;
+        background: rgba(4, 12, 24, 0.72) !important;
+        border: 1px solid rgba(148, 163, 184, 0.14) !important;
+        color: var(--text-main) !important;
+      }
+
+      div.stTextInput > div > div > input:focus,
+      div.stTextArea textarea:focus,
+      div[data-baseweb="select"] > div:focus-within,
+      div.stDateInput > div > div input:focus {
+        border-color: rgba(124, 140, 255, 0.40) !important;
+        box-shadow: 0 0 0 1px rgba(124,140,255,0.20) !important;
+      }
+
+      div[data-baseweb="base-input"] > div,
+      div[data-baseweb="textarea"] {
+        background: transparent !important;
+      }
+
+      div[data-testid="stFileUploader"] section,
+      div[data-testid="stFileUploaderDropzone"] {
+        border-radius: 18px !important;
+        border: 1px dashed rgba(148, 163, 184, 0.18) !important;
+        background: rgba(255,255,255,0.03) !important;
       }
 
       /* ---------- Metrics and data widgets ---------- */
       [data-testid="stMetric"] {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.08);
+        background: linear-gradient(180deg, rgba(9,20,38,0.78), rgba(9,20,38,0.64));
+        border: 1px solid rgba(148, 163, 184, 0.14);
         padding: 0.95rem 1rem;
         border-radius: 18px;
+        box-shadow: var(--shadow-md);
       }
 
       [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
         border-radius: 18px;
         overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.12);
+      }
+
+      div[data-testid="stExpander"] {
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        border-radius: 18px;
+        background: rgba(255,255,255,0.035);
+        overflow: hidden;
       }
 
       /* ---------- Tabs ---------- */
+      div[data-baseweb="tab-list"] {
+        gap: 0.5rem;
+      }
+
       button[data-baseweb="tab"] {
         font-weight: 600;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid transparent;
+        color: rgba(226, 232, 240, 0.76);
+        padding: 0.55rem 0.95rem;
+      }
+
+      button[data-baseweb="tab"][aria-selected="true"] {
+        background: rgba(124, 140, 255, 0.12);
+        border-color: rgba(124, 140, 255, 0.26);
+        color: var(--text-main);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+      }
+
+      button[data-baseweb="tab"]:hover {
+        color: var(--text-main);
       }
 
       /* ---------- Responsive ---------- */
+      @media (max-width: 1100px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
       @media (max-width: 900px) {
         .hero-title {
           font-size: 1.55rem;
         }
         .brand-title {
           font-size: 1.28rem;
+        }
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .nav-chip-row {
+          justify-content: flex-start;
         }
       }
     </style>
@@ -444,13 +699,16 @@ st.markdown(
 # BRAND BAR
 # -------------------------
 st.markdown(
-    """
+    f"""
     <div class="topbar">
       <div class="brand-wrap">
-        <div class="brand-badge">🎯</div>
+        <div class="brand-badge">{LOGO_MARKUP}</div>
         <div>
-          <div class="brand-title">NextRole</div>
-          <div class="brand-subtitle">AI career operations agent for smarter applications</div>
+          <div class="brand-row">
+            <div class="brand-title">NextRole</div>
+            <div class="brand-chip">Career Ops OS</div>
+          </div>
+          <div class="brand-subtitle">AI workflow for targeted applications, recruiter outreach, and follow-up execution.</div>
         </div>
       </div>
       <div class="nav-chip-row">
@@ -468,17 +726,40 @@ tabs = st.tabs(["✨ Job Agent", "📧 Cold Outreach", "📊 Pipeline Tracker"])
 st.markdown(
     """
     <div class="hero">
-      <div class="hero-eyebrow">Agentic job search workflow</div>
-      <div class="hero-title">Find the right role. Use the right resume. Take the right next step.</div>
-      <div class="hero-copy">
-        NextRole analyzes fit, recommends your strongest resume version, generates grounded application materials,
-        and keeps your application pipeline organized with priority and follow-up intelligence.
-      </div>
-      <div class="hero-pills">
-        <span class="hero-pill">Fit scoring</span>
-        <span class="hero-pill">Resume recommendation</span>
-        <span class="hero-pill">Application generation</span>
-        <span class="hero-pill">Follow-up intelligence</span>
+      <div class="hero-grid">
+        <div>
+          <div class="hero-eyebrow">Agentic job search workflow</div>
+          <div class="hero-title">Find the right role. Use the right resume. Take the right next step.</div>
+          <div class="hero-copy">
+            NextRole analyzes fit, recommends your strongest resume version, generates grounded application materials,
+            and keeps your application pipeline organized with priority and follow-up intelligence.
+          </div>
+          <div class="hero-pills">
+            <span class="hero-pill">Fit scoring</span>
+            <span class="hero-pill">Resume recommendation</span>
+            <span class="hero-pill">Application generation</span>
+            <span class="hero-pill">Follow-up intelligence</span>
+          </div>
+        </div>
+        <div class="hero-side">
+          <div class="hero-side-title">What the workflow handles</div>
+          <div class="hero-flow-item">
+            <span class="hero-flow-index">01</span>
+            <span class="hero-flow-copy">Prioritize the best-fit roles and strongest resume version.</span>
+          </div>
+          <div class="hero-flow-item">
+            <span class="hero-flow-index">02</span>
+            <span class="hero-flow-copy">Generate tailored materials grounded in the actual job post.</span>
+          </div>
+          <div class="hero-flow-item">
+            <span class="hero-flow-index">03</span>
+            <span class="hero-flow-copy">Run targeted cold outreach with Gmail-based tracking and dedupe protection.</span>
+          </div>
+          <div class="hero-flow-item">
+            <span class="hero-flow-index">04</span>
+            <span class="hero-flow-copy">Sync inbox replies and recommend the next best follow-up step.</span>
+          </div>
+        </div>
       </div>
     </div>
     """,
@@ -539,6 +820,13 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="card">
+          <div class="sidebar-app-row">
+            <div class="sidebar-logo-shell">{LOGO_MARKUP}</div>
+            <div>
+              <div class="section-kicker">Workspace</div>
+              <div class="sidebar-app-title">NextRole</div>
+            </div>
+          </div>
           <div class="small">Signed in as</div>
           <div style="font-size:1.05rem;"><b>{user_id}</b></div>
           <div class="muted small">Neon (Postgres) tracker enabled ✅</div>
