@@ -1,9 +1,16 @@
+import os
 import unittest
 from datetime import date, timedelta
 
 import pandas as pd
 
-from auth import validate_password, validate_username
+from auth import (
+    decrypt_user_gmail_token,
+    encrypt_user_gmail_token,
+    gmail_oauth_state_matches,
+    validate_password,
+    validate_username,
+)
 from agent import _parse_json_object
 from company_discovery import (
     build_muse_candidate,
@@ -19,11 +26,13 @@ from company_discovery import (
     sponsorship_signal_for_company,
 )
 from db_store import merge_visible_tracker_edits
-from gmail_sender import GmailSender
+from gmail_sender import GMAIL_CONNECT_SCOPES, GmailSender
 from hunter_helper import HunterClient
 from outreach_guardrails import (
     build_outreach_tracker_row,
+    classify_outreach_thread,
     contact_identity_keys,
+    fallback_outreach_next_step,
     filter_new_contacts,
     normalize_outreach_email,
     tracker_outreach_history,
@@ -75,6 +84,74 @@ class AuthValidationTests(unittest.TestCase):
     def test_password_validation_requires_minimum_length(self):
         with self.assertRaises(ValueError):
             validate_password("short")
+
+    def test_gmail_token_encryption_round_trip(self):
+        previous = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY")
+        os.environ["GMAIL_TOKEN_ENCRYPTION_KEY"] = "unit-test-gmail-encryption-secret"
+        try:
+            encrypted = encrypt_user_gmail_token('{"refresh_token":"abc"}')
+            decrypted = decrypt_user_gmail_token(encrypted)
+        finally:
+            if previous is None:
+                os.environ.pop("GMAIL_TOKEN_ENCRYPTION_KEY", None)
+            else:
+                os.environ["GMAIL_TOKEN_ENCRYPTION_KEY"] = previous
+
+        self.assertEqual(decrypted, '{"refresh_token":"abc"}')
+
+    def test_gmail_token_encryption_falls_back_to_database_url(self):
+        previous_token = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY")
+        previous_app = os.environ.get("APP_ENCRYPTION_KEY")
+        previous_nextrole = os.environ.get("NEXTROLE_APP_ENCRYPTION_KEY")
+        previous_db = os.environ.get("DATABASE_URL")
+        os.environ.pop("GMAIL_TOKEN_ENCRYPTION_KEY", None)
+        os.environ.pop("APP_ENCRYPTION_KEY", None)
+        os.environ.pop("NEXTROLE_APP_ENCRYPTION_KEY", None)
+        os.environ["DATABASE_URL"] = "postgresql://unit-test-user:secret@localhost:5432/testdb"
+        try:
+            encrypted = encrypt_user_gmail_token('{"refresh_token":"db-fallback"}')
+            decrypted = decrypt_user_gmail_token(encrypted)
+        finally:
+            if previous_token is None:
+                os.environ.pop("GMAIL_TOKEN_ENCRYPTION_KEY", None)
+            else:
+                os.environ["GMAIL_TOKEN_ENCRYPTION_KEY"] = previous_token
+            if previous_app is None:
+                os.environ.pop("APP_ENCRYPTION_KEY", None)
+            else:
+                os.environ["APP_ENCRYPTION_KEY"] = previous_app
+            if previous_nextrole is None:
+                os.environ.pop("NEXTROLE_APP_ENCRYPTION_KEY", None)
+            else:
+                os.environ["NEXTROLE_APP_ENCRYPTION_KEY"] = previous_nextrole
+            if previous_db is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous_db
+
+        self.assertEqual(decrypted, '{"refresh_token":"db-fallback"}')
+
+    def test_gmail_oauth_state_matches_db_fallback(self):
+        self.assertTrue(
+            gmail_oauth_state_matches(
+                "state-123",
+                session_state="",
+                session_user="",
+                db_state="state-123",
+                user_id="ram2112",
+            )
+        )
+
+    def test_gmail_oauth_state_rejects_wrong_user_and_state(self):
+        self.assertFalse(
+            gmail_oauth_state_matches(
+                "state-123",
+                session_state="state-123",
+                session_user="other_user",
+                db_state="different-state",
+                user_id="ram2112",
+            )
+        )
 
 
 class OutreachHelperTests(unittest.TestCase):
@@ -184,10 +261,26 @@ class OutreachHelperTests(unittest.TestCase):
             ["a@example.com", "b@example.com"],
         )
 
+    def test_gmail_connect_scopes_include_inbox_read(self):
+        self.assertIn("https://www.googleapis.com/auth/gmail.readonly", GMAIL_CONNECT_SCOPES)
+
     def test_gmail_attachment_preserves_mime_type(self):
         part = GmailSender._attachment_part(b"resume", "resume.txt", "text/plain")
 
         self.assertEqual(part.get_content_type(), "text/plain")
+
+    def test_gmail_oauth_redirect_uri_uses_env_override(self):
+        previous = os.environ.get("GMAIL_OAUTH_REDIRECT_URI")
+        os.environ["GMAIL_OAUTH_REDIRECT_URI"] = "http://localhost:8501"
+        try:
+            redirect_uri = GmailSender.oauth_redirect_uri()
+        finally:
+            if previous is None:
+                os.environ.pop("GMAIL_OAUTH_REDIRECT_URI", None)
+            else:
+                os.environ["GMAIL_OAUTH_REDIRECT_URI"] = previous
+
+        self.assertEqual(redirect_uri, "http://localhost:8501")
 
     def test_follow_up_action_for_overdue_application(self):
         yesterday = date.today() - timedelta(days=1)
@@ -257,14 +350,83 @@ class OutreachHelperTests(unittest.TestCase):
             resume_name="Data Resume",
             send_source="bulk_campaign",
             role_source_url="https://example.com/jobs/123",
+            gmail_message_id="msg-123",
+            gmail_thread_id="thread-123",
         )
 
         self.assertEqual(row["Company"], "Acme")
         self.assertEqual(row["Status"], "Sent")
+        self.assertEqual(row["Reply Status"], "No reply")
         self.assertEqual(row["Email"], "jane@acme.com")
         self.assertEqual(row["Send Source"], "bulk_campaign")
+        self.assertEqual(row["Gmail Message ID"], "msg-123")
+        self.assertEqual(row["Gmail Thread ID"], "thread-123")
         self.assertIn("Outreach State: sent", row["Notes"])
         self.assertIn("Send Source: bulk_campaign", row["Notes"])
+
+    def test_classify_outreach_thread_marks_reply_and_pauses_followup(self):
+        updates = classify_outreach_thread(
+            {
+                "has_inbound_reply": True,
+                "is_bounce": False,
+                "latest_message_at": "2026-04-10T12:30:00+00:00",
+                "latest_message_from": "Jane Doe <jane@acme.com>",
+                "latest_snippet": "Happy to chat next week.",
+            },
+            follow_up_date="2026-04-15",
+            today=date(2026, 4, 10),
+        )
+
+        self.assertEqual(updates["Status"], "Replied")
+        self.assertEqual(updates["Reply Status"], "Replied")
+        self.assertEqual(updates["Paused Reason"], "reply_received")
+        self.assertEqual(updates["Next Follow-up At"], "")
+
+    def test_classify_outreach_thread_marks_followup_due_without_reply(self):
+        updates = classify_outreach_thread(
+            {
+                "has_inbound_reply": False,
+                "is_bounce": False,
+                "latest_message_at": "",
+                "latest_message_from": "",
+                "latest_snippet": "",
+            },
+            follow_up_date="2026-04-05",
+            today=date(2026, 4, 10),
+        )
+
+        self.assertEqual(updates["Status"], "Sent")
+        self.assertEqual(updates["Reply Status"], "Needs follow-up")
+        self.assertEqual(updates["Next Follow-up At"], "2026-04-05")
+
+    def test_fallback_outreach_next_step_builds_reply_for_inbound_response(self):
+        suggestion = fallback_outreach_next_step(
+            reply_status="Replied",
+            company="Acme",
+            role="Data Engineer Intern",
+            contact_name="Jane Doe",
+            sender_name="Ram",
+            latest_reply_snippet="Happy to chat next week. Feel free to send times.",
+            candidate_summary="MS in Information Systems student with analytics and SQL experience.",
+            personalization="The data platform work looked closely aligned with my background",
+        )
+
+        self.assertIn("availability", suggestion["suggested_action"].lower())
+        self.assertIn("Hi Jane", suggestion["suggested_followup"])
+
+    def test_fallback_outreach_next_step_builds_gentle_followup(self):
+        suggestion = fallback_outreach_next_step(
+            reply_status="Needs follow-up",
+            company="Example AI",
+            role="Analytics Engineer Intern",
+            contact_name="Taylor Smith",
+            sender_name="Ram",
+            candidate_summary="Graduate student with experience in SQL, dashboards, and analytics workflows.",
+            personalization="The analytics infrastructure work looked especially relevant",
+        )
+
+        self.assertIn("gentle follow-up", suggestion["suggested_action"].lower())
+        self.assertIn("Following up", suggestion["suggested_followup"])
 
 
 if __name__ == "__main__":

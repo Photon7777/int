@@ -1,12 +1,16 @@
+import base64
+import hashlib
+import os
 import re
 import bcrypt
+from cryptography.fernet import Fernet
 
 from db import get_conn
 
 
 def init_auth() -> None:
     """
-    Users table for auth + preferences (email reminders).
+    Users table for auth + preferences + per-user Gmail connection.
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -23,7 +27,12 @@ def init_auth() -> None:
                     portfolio_url TEXT,
                     target_role TEXT,
                     target_location TEXT,
-                    candidate_summary TEXT
+                    candidate_summary TEXT,
+                    gmail_email TEXT,
+                    gmail_token_encrypted BYTEA,
+                    gmail_connected_at TIMESTAMPTZ,
+                    gmail_oauth_state TEXT,
+                    gmail_oauth_state_created_at TIMESTAMPTZ
                 );
                 """
             )
@@ -35,7 +44,65 @@ def init_auth() -> None:
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS target_role TEXT;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS target_location TEXT;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS candidate_summary TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_email TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_token_encrypted BYTEA;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_connected_at TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_oauth_state TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_oauth_state_created_at TIMESTAMPTZ;")
         conn.commit()
+
+
+def _coerce_fernet_key(secret: str) -> bytes:
+    raw = (secret or "").strip().encode("utf-8")
+    try:
+        Fernet(raw)
+        return raw
+    except Exception:
+        digest = hashlib.sha256(raw).digest()
+        return base64.urlsafe_b64encode(digest)
+
+
+def _secret_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        import streamlit as st
+
+        secret_value = st.secrets.get(name)
+        if secret_value:
+            return str(secret_value).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _gmail_token_cipher() -> Fernet:
+    secret = (
+        _secret_value("GMAIL_TOKEN_ENCRYPTION_KEY")
+        or _secret_value("APP_ENCRYPTION_KEY")
+        or _secret_value("NEXTROLE_APP_ENCRYPTION_KEY")
+        or _secret_value("DATABASE_URL")
+    )
+    if not secret:
+        raise RuntimeError(
+            "Missing token encryption secret. Set GMAIL_TOKEN_ENCRYPTION_KEY or APP_ENCRYPTION_KEY."
+        )
+    return Fernet(_coerce_fernet_key(secret))
+
+
+def encrypt_user_gmail_token(token_json: str) -> bytes:
+    return _gmail_token_cipher().encrypt((token_json or "").encode("utf-8"))
+
+
+def decrypt_user_gmail_token(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if not value:
+        return ""
+    return _gmail_token_cipher().decrypt(value).decode("utf-8")
 
 
 def validate_username(user_id: str) -> None:
@@ -241,3 +308,148 @@ def get_user_profile(user_id: str) -> dict:
         "candidate_summary",
     ]
     return {key: row[idx] or "" for idx, key in enumerate(keys)}
+
+
+def save_user_gmail_connection(user_id: str, gmail_email: str, token_json: str) -> None:
+    init_auth()
+    user_id = (user_id or "").strip()
+    gmail_email = (gmail_email or "").strip()
+    encrypted = encrypt_user_gmail_token(token_json)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE users
+                SET gmail_email = %s,
+                    gmail_token_encrypted = %s,
+                    gmail_connected_at = NOW(),
+                    gmail_oauth_state = NULL,
+                    gmail_oauth_state_created_at = NULL
+                WHERE user_id = %s
+                """,
+                (gmail_email, encrypted, user_id),
+            )
+        conn.commit()
+
+
+def clear_user_gmail_connection(user_id: str) -> None:
+    init_auth()
+    user_id = (user_id or "").strip()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE users
+                SET gmail_email = NULL,
+                    gmail_token_encrypted = NULL,
+                    gmail_connected_at = NULL,
+                    gmail_oauth_state = NULL,
+                    gmail_oauth_state_created_at = NULL
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+        conn.commit()
+
+
+def get_user_gmail_connection(user_id: str, include_token: bool = False) -> dict:
+    init_auth()
+    user_id = (user_id or "").strip()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT gmail_email, gmail_token_encrypted, gmail_connected_at
+                FROM users
+                WHERE user_id = %s
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        return {"connected": False, "gmail_email": "", "connected_at": None}
+
+    gmail_email = row[0] or ""
+    token_encrypted = row[1]
+    connected_at = row[2]
+    connected = bool(gmail_email and token_encrypted)
+    payload = {
+        "connected": connected,
+        "gmail_email": gmail_email,
+        "connected_at": connected_at,
+    }
+    if include_token and connected:
+        payload["token_json"] = decrypt_user_gmail_token(token_encrypted)
+    return payload
+
+
+def save_user_gmail_oauth_state(user_id: str, oauth_state: str) -> None:
+    init_auth()
+    user_id = (user_id or "").strip()
+    oauth_state = (oauth_state or "").strip()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE users
+                SET gmail_oauth_state = %s,
+                    gmail_oauth_state_created_at = NOW()
+                WHERE user_id = %s
+                """,
+                (oauth_state or None, user_id),
+            )
+        conn.commit()
+
+
+def get_user_gmail_oauth_state(user_id: str) -> str:
+    init_auth()
+    user_id = (user_id or "").strip()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT gmail_oauth_state FROM users WHERE user_id = %s LIMIT 1",
+                (user_id,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return ""
+    return row[0] or ""
+
+
+def clear_user_gmail_oauth_state(user_id: str) -> None:
+    init_auth()
+    user_id = (user_id or "").strip()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE users
+                SET gmail_oauth_state = NULL,
+                    gmail_oauth_state_created_at = NULL
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+        conn.commit()
+
+
+def gmail_oauth_state_matches(
+    callback_state: str,
+    *,
+    session_state: str = "",
+    session_user: str = "",
+    db_state: str = "",
+    user_id: str = "",
+) -> bool:
+    callback_state = (callback_state or "").strip()
+    session_state = (session_state or "").strip()
+    session_user = (session_user or "").strip()
+    db_state = (db_state or "").strip()
+    user_id = (user_id or "").strip()
+
+    valid_session_state = callback_state == session_state and session_user == user_id and bool(session_state)
+    valid_db_state = callback_state == db_state and bool(db_state)
+    return valid_session_state or valid_db_state

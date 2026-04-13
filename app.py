@@ -24,11 +24,17 @@ from tools import (
     recommend_follow_up_action,
     rank_resume_versions,
 )
-from agent import generate_application_materials, generate_outreach_materials
+from agent import (
+    generate_application_materials,
+    generate_outreach_materials,
+    generate_outreach_next_step,
+)
 from company_discovery import company_key, discover_companies_from_web, sponsorship_signal_for_company
 from outreach_guardrails import (
     build_outreach_tracker_row,
+    classify_outreach_thread,
     contact_identity_keys,
+    fallback_outreach_next_step,
     filter_new_contacts,
     is_duplicate_contact,
     normalize_outreach_email,
@@ -53,19 +59,26 @@ from db_store import (
     load_resume_payload,
     delete_resume_version,
     list_resume_payloads,
+    update_outreach_row,
 )
 
 from auth import (
+    clear_user_gmail_connection,
+    clear_user_gmail_oauth_state,
     create_user,
+    gmail_oauth_state_matches,
     verify_user,
     change_password,
     delete_user,
+    get_user_gmail_connection,
+    get_user_gmail_oauth_state,
     get_user_profile,
+    save_user_gmail_oauth_state,
     update_user_profile,
 )
 
 from hunter_helper import HunterClient
-from gmail_sender import GmailSender
+from gmail_sender import GmailSendError, GmailSender
 
 load_dotenv()
 
@@ -481,6 +494,8 @@ def auth_box() -> str:
 
     with st.sidebar:
         st.markdown("### 👤 Account")
+        if st.query_params.get("code") and st.query_params.get("state"):
+            st.info("Sign in to finish connecting your Gmail account.")
         mode = st.radio("Mode", ["Log in", "Sign up"], horizontal=True)
 
         username = st.text_input("Username", key="auth_user")
@@ -513,6 +528,13 @@ def auth_box() -> str:
 
 user_id = auth_box()
 
+gmail_sidebar_connection = get_user_gmail_connection(user_id)
+gmail_sidebar_label = (
+    f"Gmail connected: {gmail_sidebar_connection.get('gmail_email', '')}"
+    if gmail_sidebar_connection.get("connected")
+    else "Gmail not connected"
+)
+
 with st.sidebar:
     st.markdown(
         f"""
@@ -520,6 +542,7 @@ with st.sidebar:
           <div class="small">Signed in as</div>
           <div style="font-size:1.05rem;"><b>{user_id}</b></div>
           <div class="muted small">Neon (Postgres) tracker enabled ✅</div>
+          <div class="muted small">{gmail_sidebar_label}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -529,10 +552,68 @@ with st.sidebar:
         st.session_state["user_id"] = ""
         st.rerun()
 
+
+def start_gmail_connect_flow(user_id: str) -> None:
+    auth_url, state = GmailSender.begin_user_connect_flow()
+    save_user_gmail_oauth_state(user_id, state)
+    st.session_state["gmail_oauth_state"] = state
+    st.session_state["gmail_oauth_user"] = user_id
+    st.session_state["gmail_oauth_url"] = auth_url
+
 # -------------------------
 # ACCOUNT SETTINGS
 # -------------------------
 with st.sidebar.expander("⚙️ Account settings", expanded=False):
+    st.markdown("#### Gmail connection")
+    gmail_connection = get_user_gmail_connection(user_id)
+    if st.session_state.get("gmail_connect_success"):
+        st.success(st.session_state["gmail_connect_success"])
+        st.session_state["gmail_connect_success"] = ""
+    if st.session_state.get("gmail_connect_error"):
+        st.error(st.session_state["gmail_connect_error"])
+        st.session_state["gmail_connect_error"] = ""
+
+    if gmail_connection.get("connected"):
+        connected_email = gmail_connection.get("gmail_email", "")
+        connected_at = gmail_connection.get("connected_at")
+        connected_at_label = connected_at.strftime("%Y-%m-%d %H:%M") if connected_at else "recently"
+        st.info(f"Connected Gmail: {connected_email}\n\nConnected: {connected_at_label}")
+        gx1, gx2 = st.columns(2)
+        with gx1:
+            if st.button("Reconnect Gmail", use_container_width=True):
+                try:
+                    start_gmail_connect_flow(user_id)
+                except Exception as e:
+                    st.error(str(e))
+        with gx2:
+            if st.button("Disconnect Gmail", use_container_width=True):
+                try:
+                    clear_user_gmail_connection(user_id)
+                    clear_user_gmail_oauth_state(user_id)
+                    st.session_state["gmail_oauth_state"] = ""
+                    st.session_state["gmail_oauth_user"] = ""
+                    st.session_state["gmail_oauth_url"] = ""
+                    st.success("Disconnected Gmail ✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(str(e))
+    else:
+        st.caption("Connect a Google account so this user sends outreach from their own Gmail account.")
+        if st.button("Connect Gmail", use_container_width=True):
+            try:
+                start_gmail_connect_flow(user_id)
+            except Exception as e:
+                st.error(str(e))
+
+    pending_gmail_url = st.session_state.get("gmail_oauth_url", "")
+    if pending_gmail_url and st.session_state.get("gmail_oauth_user") == user_id:
+        st.link_button("Continue with Google", pending_gmail_url, use_container_width=True)
+        st.caption(
+            "After approving Google access, you will be redirected back here and this account will be linked to your app user."
+        )
+
+    st.divider()
+
     st.markdown("#### Change password")
     with st.form("change_pw_form"):
         cur = st.text_input("Current password", type="password", key="pw_cur")
@@ -652,6 +733,16 @@ if "daily_outreach_queue" not in st.session_state:
     st.session_state["daily_outreach_queue"] = []
 if "daily_discovery_last_run" not in st.session_state:
     st.session_state["daily_discovery_last_run"] = ""
+if "gmail_oauth_state" not in st.session_state:
+    st.session_state["gmail_oauth_state"] = ""
+if "gmail_oauth_user" not in st.session_state:
+    st.session_state["gmail_oauth_user"] = ""
+if "gmail_oauth_url" not in st.session_state:
+    st.session_state["gmail_oauth_url"] = ""
+if "gmail_connect_success" not in st.session_state:
+    st.session_state["gmail_connect_success"] = ""
+if "gmail_connect_error" not in st.session_state:
+    st.session_state["gmail_connect_error"] = ""
 
 if st.session_state.get("profile_loaded_for") != user_id:
     try:
@@ -750,6 +841,60 @@ def priority_rank(priority: str) -> int:
     return mapping.get((priority or "").strip(), 0)
 
 
+def _query_param_str(name: str) -> str:
+    value = st.query_params.get(name)
+    if isinstance(value, list):
+        return str(value[0]) if value else ""
+    return str(value or "")
+
+
+def clear_gmail_oauth_query_params() -> None:
+    for key in ("code", "state", "scope", "authuser", "prompt", "error", "error_subtype", "iss", "hd"):
+        try:
+            del st.query_params[key]
+        except Exception:
+            pass
+
+def handle_gmail_oauth_callback(user_id: str) -> None:
+    error = _query_param_str("error")
+    if error:
+        st.session_state["gmail_connect_error"] = f"Google OAuth was not completed: {error}"
+        st.session_state["gmail_connect_success"] = ""
+        clear_gmail_oauth_query_params()
+        st.rerun()
+
+    code = _query_param_str("code")
+    state = _query_param_str("state")
+    if not code or not state:
+        return
+
+    expected_state = st.session_state.get("gmail_oauth_state", "")
+    expected_user = st.session_state.get("gmail_oauth_user", "")
+    db_expected_state = get_user_gmail_oauth_state(user_id)
+    try:
+        if not gmail_oauth_state_matches(
+            state,
+            session_state=expected_state,
+            session_user=expected_user,
+            db_state=db_expected_state,
+            user_id=user_id,
+        ):
+            raise ValueError("Google OAuth state mismatch. Please start the Gmail connection again.")
+        gmail_email = GmailSender.complete_user_connect_flow(user_id, state=state, code=code)
+        st.session_state["gmail_connect_success"] = f"Connected Gmail account: {gmail_email}"
+        st.session_state["gmail_connect_error"] = ""
+    except Exception as e:
+        st.session_state["gmail_connect_error"] = str(e)
+        st.session_state["gmail_connect_success"] = ""
+    finally:
+        st.session_state["gmail_oauth_state"] = ""
+        st.session_state["gmail_oauth_user"] = ""
+        st.session_state["gmail_oauth_url"] = ""
+        clear_user_gmail_oauth_state(user_id)
+        clear_gmail_oauth_query_params()
+        st.rerun()
+
+
 def render_decision_card(priority: str, fit_score: str, fit_summary: str, next_action: str, resume_name: str = "") -> str:
     priority = priority or "Not scored"
     fit_score = fit_score or "—"
@@ -769,6 +914,9 @@ def render_decision_card(priority: str, fit_score: str, fit_summary: str, next_a
       {resume_line}
     </div>
     """
+
+
+handle_gmail_oauth_callback(user_id)
 
 
 def extract_resume_highlights(resume_text: str, limit: int = 3) -> list:
@@ -1152,6 +1300,8 @@ def log_sent_outreach_to_tracker(
     resume_name: str,
     send_source: str,
     role_source_url: str = "",
+    gmail_message_id: str = "",
+    gmail_thread_id: str = "",
 ) -> None:
     append_outreach_row(
         user_id,
@@ -1168,6 +1318,8 @@ def log_sent_outreach_to_tracker(
             resume_name=resume_name,
             send_source=send_source,
             role_source_url=role_source_url,
+            gmail_message_id=gmail_message_id,
+            gmail_thread_id=gmail_thread_id,
         ),
     )
 
@@ -1196,8 +1348,10 @@ def log_draft_outreach_to_tracker(
             "Role": preferred_role or "Cold outreach",
             "Location": target_location,
             "Status": "Drafted",
+            "Reply Status": "Drafted",
             "Resume Used": resume_name,
             "Follow-up Date": str(date.today() + timedelta(days=5)),
+            "Next Follow-up At": str(date.today() + timedelta(days=5)),
             "Contact Name": contact_name,
             "Contact Link": contact_link,
             "Email": email,
@@ -1206,9 +1360,181 @@ def log_draft_outreach_to_tracker(
             "Sponsorship Signal": sponsorship_signal or "Unknown / verify",
             "Send Source": send_source,
             "Role Source URL": role_source_url,
+            "Gmail Message ID": "",
+            "Gmail Thread ID": "",
+            "Last Reply At": "",
+            "Last Reply From": "",
+            "Last Reply Snippet": "",
+            "Last Synced At": "",
+            "Sequence Step": "Initial",
+            "Paused Reason": "",
             "Notes": "Outreach State: drafted",
         },
     )
+
+
+def build_outreach_next_step_suggestion(
+    row: dict,
+    *,
+    sender_name: str,
+    candidate_summary: str,
+    linkedin_url: str = "",
+    portfolio_url: str = "",
+    use_ai: bool = True,
+) -> dict[str, str]:
+    fallback = fallback_outreach_next_step(
+        reply_status=str(row.get("Reply Status", "") or ""),
+        company=str(row.get("Company", "") or ""),
+        role=str(row.get("Role", "") or ""),
+        contact_name=str(row.get("Contact Name", "") or ""),
+        sender_name=sender_name,
+        latest_reply_snippet=str(row.get("Last Reply Snippet", "") or ""),
+        candidate_summary=candidate_summary,
+        personalization=str(row.get("Personalization", "") or ""),
+        linkedin_url=linkedin_url,
+        portfolio_url=portfolio_url,
+    )
+    if not use_ai:
+        return fallback
+    try:
+        return generate_outreach_next_step(
+            reply_status=str(row.get("Reply Status", "") or ""),
+            company_name=str(row.get("Company", "") or ""),
+            role_title=str(row.get("Role", "") or ""),
+            contact_name=str(row.get("Contact Name", "") or ""),
+            subject=str(row.get("Subject", "") or ""),
+            personalization=str(row.get("Personalization", "") or ""),
+            latest_reply_snippet=str(row.get("Last Reply Snippet", "") or ""),
+            sender_name=sender_name,
+            candidate_summary=candidate_summary,
+            linkedin_url=linkedin_url,
+            portfolio_url=portfolio_url,
+            fallback_action=fallback["suggested_action"],
+            fallback_followup=fallback["suggested_followup"],
+        )
+    except Exception:
+        return fallback
+
+
+def sync_outreach_inbox(
+    user_id: str,
+    *,
+    sender_name: str,
+    candidate_summary: str,
+    linkedin_url: str = "",
+    portfolio_url: str = "",
+    use_ai: bool = True,
+) -> dict[str, int]:
+    outreach_df = read_outreach_tracker_df(user_id)
+    if outreach_df.empty:
+        return {"synced": 0, "replied": 0, "bounced": 0, "follow_up_due": 0, "suggested": 0, "skipped": 0}
+
+    candidates = outreach_df[
+        outreach_df.get("Gmail Thread ID", pd.Series(dtype=str)).fillna("").astype(str).str.strip() != ""
+    ].copy()
+    if candidates.empty:
+        return {"synced": 0, "replied": 0, "bounced": 0, "follow_up_due": 0, "suggested": 0, "skipped": 0}
+
+    sender = GmailSender.from_user(user_id)
+    synced_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    results = {"synced": 0, "replied": 0, "bounced": 0, "follow_up_due": 0, "suggested": 0, "skipped": 0}
+
+    for _, row in candidates.iterrows():
+        row_id = str(row.get("_row_id", "") or "").strip()
+        thread_id = str(row.get("Gmail Thread ID", "") or "").strip()
+        if not row_id or not thread_id:
+            results["skipped"] += 1
+            continue
+        try:
+            summary = sender.get_thread_summary(thread_id)
+        except GmailSendError as exc:
+            message = str(exc)
+            if "Reconnect Gmail" in message or "cannot sync replies yet" in message:
+                raise
+            results["skipped"] += 1
+            continue
+
+        updates = classify_outreach_thread(
+            summary,
+            follow_up_date=str(
+                row.get("Next Follow-up At")
+                or row.get("Follow-up Date")
+                or ""
+            ),
+            today=date.today(),
+        )
+        updates["Last Synced At"] = synced_at
+        if summary.get("thread_id"):
+            updates["Gmail Thread ID"] = str(summary.get("thread_id") or "")
+        suggestion_input = {
+            **{str(k): row.get(k, "") for k in row.index},
+            **updates,
+            "Last Reply Snippet": updates.get("Last Reply Snippet", str(row.get("Last Reply Snippet", "") or "")),
+        }
+        suggestion = build_outreach_next_step_suggestion(
+            suggestion_input,
+            sender_name=sender_name,
+            candidate_summary=candidate_summary,
+            linkedin_url=linkedin_url,
+            portfolio_url=portfolio_url,
+            use_ai=use_ai,
+        )
+        updates["Suggested Action"] = suggestion["suggested_action"]
+        updates["Suggested Follow-up"] = suggestion["suggested_followup"]
+        updates["Suggestion Updated At"] = synced_at
+
+        update_outreach_row(user_id, row_id, updates)
+        results["synced"] += 1
+        if suggestion["suggested_followup"]:
+            results["suggested"] += 1
+        if updates.get("Reply Status") == "Replied":
+            results["replied"] += 1
+        elif updates.get("Reply Status") == "Bounced":
+            results["bounced"] += 1
+        elif updates.get("Reply Status") == "Needs follow-up":
+            results["follow_up_due"] += 1
+
+    return results
+
+
+def refresh_outreach_suggestions(
+    user_id: str,
+    *,
+    sender_name: str,
+    candidate_summary: str,
+    linkedin_url: str = "",
+    portfolio_url: str = "",
+    use_ai: bool = True,
+) -> int:
+    outreach_df = read_outreach_tracker_df(user_id)
+    if outreach_df.empty:
+        return 0
+
+    suggestion_updated_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    refreshed = 0
+    for _, row in outreach_df.iterrows():
+        row_id = str(row.get("_row_id", "") or "").strip()
+        if not row_id:
+            continue
+        suggestion = build_outreach_next_step_suggestion(
+            row.to_dict(),
+            sender_name=sender_name,
+            candidate_summary=candidate_summary,
+            linkedin_url=linkedin_url,
+            portfolio_url=portfolio_url,
+            use_ai=use_ai,
+        )
+        update_outreach_row(
+            user_id,
+            row_id,
+            {
+                "Suggested Action": suggestion["suggested_action"],
+                "Suggested Follow-up": suggestion["suggested_followup"],
+                "Suggestion Updated At": suggestion_updated_at,
+            },
+        )
+        refreshed += 1
+    return refreshed
 
 
 def mark_outreach_rows(df: pd.DataFrame, emails: set, status: str) -> pd.DataFrame:
@@ -1711,6 +2037,11 @@ with tabs[1]:
     st.markdown("### 📧 Cold Outreach Campaigns")
     st.caption("Attach your resume, personalize emails to each company, and run individual, bulk, or daily company discovery using Hunter plus hybrid structured/open-web role discovery.")
     st.caption(f"Safety guardrail: bulk sends are capped at {MAX_EMAILS_PER_BATCH} emails per click.")
+    cold_outreach_gmail = get_user_gmail_connection(user_id)
+    if cold_outreach_gmail.get("connected"):
+        st.caption(f"Sending Gmail: {cold_outreach_gmail.get('gmail_email','')}")
+    else:
+        st.warning("Connect Gmail in Account settings before sending outreach. Each user now sends from their own connected Gmail account.")
 
     if "outreach_preferred_role" not in st.session_state:
         st.session_state["outreach_preferred_role"] = st.session_state.get("role_input", "")
@@ -2013,11 +2344,11 @@ with tabs[1]:
                     try:
                         log_failed = False
                         with st.spinner("Sending email through Gmail..."):
-                            sender = GmailSender.from_env()
+                            sender = GmailSender.from_user(user_id)
                             attachment = active_resume_attachment()
                             if not attachment.get("attachment_bytes"):
                                 st.warning("No attachable resume file is active; sending without an attachment.")
-                            sender.send_email(
+                            send_result = sender.send_email(
                                 to=recipient_email,
                                 subject=st.session_state.get("individual_subject", ""),
                                 body_text=st.session_state.get("individual_body", ""),
@@ -2038,6 +2369,8 @@ with tabs[1]:
                                 sponsorship_signal="Unknown / verify",
                                 resume_name=st.session_state.get("resume_name", ""),
                                 send_source="individual_outreach",
+                                gmail_message_id=str(send_result.get("id", "") or ""),
+                                gmail_thread_id=str(send_result.get("threadId", "") or ""),
                             )
                         except Exception:
                             log_failed = True
@@ -2116,7 +2449,7 @@ with tabs[1]:
                             st.error(f"Select {MAX_EMAILS_PER_BATCH} or fewer emails per batch to reduce accidental bulk sends.")
                             st.stop()
                         with st.spinner("Sending selected emails through Gmail..."):
-                            sender = GmailSender.from_env()
+                            sender = GmailSender.from_user(user_id)
                             attachment = active_resume_attachment()
                             if not attachment.get("attachment_bytes"):
                                 st.warning("No attachable resume file is active; selected emails will send without attachments.")
@@ -2125,7 +2458,7 @@ with tabs[1]:
                             log_failures = 0
                             for row in send_rows:
                                 email = str(row.get("Email", "")).strip()
-                                sender.send_email(
+                                send_result = sender.send_email(
                                     to=email,
                                     subject=str(row.get("Subject", "")),
                                     body_text=str(row.get("Body", "")),
@@ -2147,6 +2480,8 @@ with tabs[1]:
                                         resume_name=st.session_state.get("resume_name", ""),
                                         send_source="bulk_campaign",
                                         role_source_url=str(row.get("Role Source URL", "")),
+                                        gmail_message_id=str(send_result.get("id", "") or ""),
+                                        gmail_thread_id=str(send_result.get("threadId", "") or ""),
                                     )
                                 except Exception:
                                     log_failures += 1
@@ -2283,7 +2618,7 @@ with tabs[1]:
                         st.error(f"Select {MAX_EMAILS_PER_BATCH} or fewer emails per batch to reduce accidental bulk sends.")
                         st.stop()
                     with st.spinner("Sending selected daily discovery emails through Gmail..."):
-                        sender = GmailSender.from_env()
+                        sender = GmailSender.from_user(user_id)
                         attachment = active_resume_attachment()
                         if not attachment.get("attachment_bytes"):
                             st.warning("No attachable resume file is active; selected emails will send without attachments.")
@@ -2292,7 +2627,7 @@ with tabs[1]:
                         log_failures = 0
                         for row in send_rows:
                             email = str(row.get("Email", "")).strip()
-                            sender.send_email(
+                            send_result = sender.send_email(
                                 to=email,
                                 subject=str(row.get("Subject", "")),
                                 body_text=str(row.get("Body", "")),
@@ -2314,6 +2649,8 @@ with tabs[1]:
                                     resume_name=st.session_state.get("resume_name", ""),
                                     send_source="daily_discovery",
                                     role_source_url=str(row.get("Role Source URL", "")),
+                                    gmail_message_id=str(send_result.get("id", "") or ""),
+                                    gmail_thread_id=str(send_result.get("threadId", "") or ""),
                                 )
                             except Exception:
                                 log_failures += 1
@@ -2337,27 +2674,113 @@ with tabs[1]:
     with mode_tabs[3]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.caption("This tracker is separate from the job application pipeline so cold outreach history stays isolated and easier to review.")
+        use_ai_suggestions = st.checkbox(
+            "Use AI to improve follow-up suggestions",
+            value=True,
+            help="If disabled, the tracker uses deterministic fallback suggestions based on reply state.",
+            key="outreach_tracker_ai_suggestions",
+        )
+        sync_col, refresh_col, sync_help_col = st.columns([0.9, 1.0, 1.6])
+        with sync_col:
+            if st.button("🔄 Sync inbox now", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Syncing Gmail threads and checking for replies..."):
+                        sync_results = sync_outreach_inbox(
+                            user_id,
+                            sender_name=sender_name,
+                            candidate_summary=candidate_summary,
+                            linkedin_url=linkedin_url,
+                            portfolio_url=portfolio_url,
+                            use_ai=use_ai_suggestions,
+                        )
+                    st.success(f"Synced {sync_results['synced']} tracked thread(s).")
+                    if (
+                        sync_results["replied"]
+                        or sync_results["bounced"]
+                        or sync_results["follow_up_due"]
+                        or sync_results["suggested"]
+                    ):
+                        st.info(
+                            "Detected "
+                            f"{sync_results['replied']} replie(s), "
+                            f"{sync_results['bounced']} bounce(s), and "
+                            f"{sync_results['follow_up_due']} thread(s) needing follow-up. "
+                            f"Updated {sync_results['suggested']} suggestion(s)."
+                        )
+                except Exception as e:
+                    st.error(str(e))
+        with refresh_col:
+            if st.button("✨ Refresh suggestions", use_container_width=True):
+                try:
+                    with st.spinner("Generating outreach next-step suggestions..."):
+                        refreshed = refresh_outreach_suggestions(
+                            user_id,
+                            sender_name=sender_name,
+                            candidate_summary=candidate_summary,
+                            linkedin_url=linkedin_url,
+                            portfolio_url=portfolio_url,
+                            use_ai=use_ai_suggestions,
+                        )
+                    st.success(f"Updated {refreshed} follow-up suggestion(s).")
+                except Exception as e:
+                    st.error(str(e))
+        with sync_help_col:
+            st.caption(
+                "Inbox sync uses Gmail thread IDs captured after each send. "
+                "If sync asks you to reconnect Gmail, your older token likely needs inbox-read access."
+            )
         outreach_df = read_outreach_tracker_df(user_id)
         if outreach_df.empty:
             st.info("No outreach rows yet. Sent emails and saved drafts from Cold Outreach will appear here.")
         else:
             status_series = outreach_df["Status"].fillna("").astype(str)
-            followup_dates = pd.to_datetime(outreach_df["Follow-up Date"], errors="coerce")
+            reply_status_series = outreach_df.get("Reply Status", pd.Series(dtype=str)).fillna("").astype(str)
+            tracked_threads = outreach_df.get("Gmail Thread ID", pd.Series(dtype=str)).fillna("").astype(str).str.strip() != ""
+            suggestions_ready = outreach_df.get("Suggested Follow-up", pd.Series(dtype=str)).fillna("").astype(str).str.strip() != ""
+            followup_source = outreach_df.get("Next Follow-up At", outreach_df.get("Follow-up Date", pd.Series(dtype=str)))
+            followup_dates = pd.to_datetime(followup_source, errors="coerce")
             today_ts = pd.Timestamp(date.today())
-            o1, o2, o3, o4 = st.columns(4)
+            o1, o2, o3, o4, o5, o6 = st.columns(6)
             o1.metric("Outreach rows", len(outreach_df))
-            o2.metric("Sent", int((status_series == "Sent").sum()))
-            o3.metric("Drafted", int((status_series == "Drafted").sum()))
-            o4.metric("Follow-up due", int(((followup_dates.notna()) & (followup_dates < today_ts) & (~status_series.isin(["Closed", "Replied"]))).sum()))
+            o2.metric("Tracked threads", int(tracked_threads.sum()))
+            o3.metric("Replies detected", int((reply_status_series == "Replied").sum()))
+            o4.metric("Needs follow-up", int((reply_status_series == "Needs follow-up").sum()))
+            o5.metric("Bounces", int((reply_status_series == "Bounced").sum()))
+            o6.metric("Suggestions ready", int(suggestions_ready.sum()))
 
             status_filter = st.multiselect(
                 "Filter outreach status",
                 sorted([status for status in status_series.unique().tolist() if status.strip()]),
                 key="outreach_tracker_status_filter",
             )
+            reply_filter = st.multiselect(
+                "Filter reply status",
+                sorted([status for status in reply_status_series.unique().tolist() if status.strip()]),
+                key="outreach_tracker_reply_filter",
+            )
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                only_replied = st.checkbox("Only show replied", key="outreach_only_replied")
+            with f2:
+                only_follow_up_due = st.checkbox("Only show follow-up due", key="outreach_only_followup_due")
+            with f3:
+                only_unsynced = st.checkbox("Only show unsynced", key="outreach_only_unsynced")
             filtered_outreach = outreach_df.copy()
             if status_filter:
                 filtered_outreach = filtered_outreach[filtered_outreach["Status"].isin(status_filter)]
+            if reply_filter:
+                filtered_outreach = filtered_outreach[filtered_outreach["Reply Status"].isin(reply_filter)]
+            if only_replied:
+                filtered_outreach = filtered_outreach[filtered_outreach["Reply Status"] == "Replied"]
+            if only_follow_up_due:
+                due_mask = (
+                    pd.to_datetime(filtered_outreach.get("Next Follow-up At", filtered_outreach.get("Follow-up Date", pd.Series(dtype=str))), errors="coerce") < today_ts
+                ) & (~filtered_outreach["Reply Status"].isin(["Replied", "Bounced"]))
+                filtered_outreach = filtered_outreach[due_mask.fillna(False)]
+            if only_unsynced:
+                last_synced = filtered_outreach.get("Last Synced At", pd.Series(dtype=str)).fillna("").astype(str).str.strip()
+                has_thread = filtered_outreach.get("Gmail Thread ID", pd.Series(dtype=str)).fillna("").astype(str).str.strip() != ""
+                filtered_outreach = filtered_outreach[(last_synced == "") & has_thread]
 
             st.dataframe(
                 filtered_outreach.drop(columns=["_row_id"], errors="ignore"),
@@ -2366,8 +2789,29 @@ with tabs[1]:
                 column_config={
                     "Role Source URL": st.column_config.LinkColumn("Role Source URL"),
                     "Contact Link": st.column_config.LinkColumn("Contact Link"),
+                    "Suggested Action": st.column_config.TextColumn("Suggested Action", width="medium"),
+                    "Suggested Follow-up": st.column_config.TextColumn("Suggested Follow-up", width="large"),
+                    "Last Reply Snippet": st.column_config.TextColumn("Last Reply Snippet", width="large"),
                 },
             )
+            suggestion_rows = filtered_outreach[
+                filtered_outreach.get("Suggested Follow-up", pd.Series(dtype=str)).fillna("").astype(str).str.strip() != ""
+            ].head(5)
+            if not suggestion_rows.empty:
+                st.markdown("#### Suggested next steps")
+                for _, suggestion_row in suggestion_rows.iterrows():
+                    company_label = str(suggestion_row.get("Company", "") or "Unknown company")
+                    reply_label = str(suggestion_row.get("Reply Status", "") or "No reply")
+                    action_label = str(suggestion_row.get("Suggested Action", "") or "Next step suggestion")
+                    with st.expander(f"{company_label} — {reply_label} — {action_label}", expanded=False):
+                        if str(suggestion_row.get("Last Reply Snippet", "")).strip():
+                            st.caption(f"Latest reply: {suggestion_row.get('Last Reply Snippet', '')}")
+                        st.text_area(
+                            "Suggested follow-up",
+                            value=str(suggestion_row.get("Suggested Follow-up", "") or ""),
+                            height=160,
+                            key=f"suggested_followup_preview_{suggestion_row.get('_row_id', '')}",
+                        )
             st.download_button(
                 "⬇️ Download outreach tracker CSV",
                 data=filtered_outreach.drop(columns=["_row_id"], errors="ignore").to_csv(index=False).encode("utf-8"),

@@ -52,9 +52,9 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_OUTREACH_MODEL=gpt-4o-mini
 DATABASE_URL=postgresql://...
 HUNTER_API_KEY=...
-GMAIL_SENDER_EMAIL=you@example.com
 GMAIL_CLIENT_SECRET_FILE=/absolute/path/to/client_secret.json
-GMAIL_TOKEN_FILE=/absolute/path/to/gmail_token.json
+GMAIL_OAUTH_REDIRECT_URI=http://localhost:8501
+GMAIL_TOKEN_ENCRYPTION_KEY=replace-with-a-long-secret
 ```
 
 Optional Streamlit secrets:
@@ -73,9 +73,10 @@ streamlit run app.py
 ## Deployment Notes
 
 - Use Postgres-compatible storage such as Neon, Render Postgres, Railway Postgres, or Supabase Postgres.
-- Store `DATABASE_URL`, `OPENAI_API_KEY`, `HUNTER_API_KEY`, and Gmail settings in deployment secrets.
+- Store `DATABASE_URL`, `OPENAI_API_KEY`, `HUNTER_API_KEY`, `GMAIL_CLIENT_SECRET_FILE`, `GMAIL_OAUTH_REDIRECT_URI`, and `GMAIL_TOKEN_ENCRYPTION_KEY` in deployment secrets.
 - Do not commit `.env`, Streamlit secrets, Gmail tokens, Google client-secret JSON files, local DB files, or runtime tracker artifacts.
-- Gmail OAuth token generation may require a local browser flow; for hosted deployments, pre-provision a token securely or replace the sender with a hosted email provider flow.
+- Each app user now connects their own Gmail account from Account settings, and the encrypted OAuth token is stored in Postgres.
+- The redirect URI configured in Google Cloud must match `GMAIL_OAUTH_REDIRECT_URI`.
 
 ## Verification
 
@@ -95,5 +96,6 @@ venv/bin/python -m unittest discover -s tests
 
 - Passwords are hashed with bcrypt.
 - Tracker and resume data is scoped by `user_id`.
+- Per-user Gmail OAuth tokens are encrypted before storage in Postgres.
 - Destructive account deletion verifies the password before wiping tracker/resume data.
 - OAuth/client-secret files are ignored by Git; rotate credentials if they were ever exposed.

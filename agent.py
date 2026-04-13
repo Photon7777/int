@@ -80,6 +80,22 @@ Rules:
 - personalization_angle should be a short phrase explaining the exact niche angle used.
 """
 
+OUTREACH_REPLY_SYSTEM = """You help a job seeker decide the best next outreach step.
+Return ONLY valid JSON with these exact keys:
+suggested_action, suggested_followup
+
+Rules:
+- Base the answer on the reply_status and latest_reply_snippet.
+- If reply_status is Replied, draft the next reply email body.
+- If reply_status is Needs follow-up, draft a gentle follow-up email body.
+- If reply_status is Bounced, do not draft an email to the bounced address; suggest the next action instead.
+- If reply_status is No reply, suggest whether to wait or send a light check-in.
+- Do not invent interviews, openings, referrals, timing, or company facts.
+- Keep email drafts concise, direct, and under 120 words when possible.
+- Preserve the user's professionalism and avoid spammy or overly eager wording.
+- Use LinkedIn and portfolio links only if provided.
+"""
+
 
 def _parse_json_object(raw: str) -> dict:
     try:
@@ -151,4 +167,50 @@ def generate_outreach_materials(
         "body": str(parsed.get("body") or fallback_body).strip(),
         "followup": str(parsed.get("followup") or fallback_followup).strip(),
         "personalization_angle": str(parsed.get("personalization_angle") or company_reason).strip(),
+    }
+
+
+def generate_outreach_next_step(
+    *,
+    reply_status: str,
+    company_name: str,
+    role_title: str,
+    contact_name: str,
+    subject: str,
+    personalization: str,
+    latest_reply_snippet: str,
+    sender_name: str,
+    candidate_summary: str,
+    linkedin_url: str,
+    portfolio_url: str,
+    fallback_action: str,
+    fallback_followup: str,
+) -> dict:
+    payload = {
+        "reply_status": reply_status,
+        "company_name": company_name,
+        "role_title": role_title,
+        "contact_name": contact_name,
+        "subject": subject,
+        "personalization": personalization,
+        "latest_reply_snippet": latest_reply_snippet,
+        "sender_name": sender_name,
+        "candidate_summary": candidate_summary,
+        "linkedin_url": linkedin_url,
+        "portfolio_url": portfolio_url,
+        "fallback_action": fallback_action,
+        "fallback_followup": fallback_followup,
+    }
+    resp = _client().chat.completions.create(
+        model=OUTREACH_MODEL,
+        messages=[
+            {"role": "system", "content": OUTREACH_REPLY_SYSTEM},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
+        ],
+        temperature=0.55,
+    )
+    parsed = _parse_json_object(resp.choices[0].message.content.strip())
+    return {
+        "suggested_action": str(parsed.get("suggested_action") or fallback_action).strip(),
+        "suggested_followup": str(parsed.get("suggested_followup") or fallback_followup).strip(),
     }
