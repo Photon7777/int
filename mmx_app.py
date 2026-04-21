@@ -39,7 +39,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      #MainMenu, footer, header {visibility: hidden;}
+      #MainMenu, footer {visibility: hidden;}
       .block-container {
         max-width: 1360px;
         padding-top: 1.4rem;
