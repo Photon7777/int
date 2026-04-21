@@ -14,6 +14,21 @@ NextRole helps users choose the best resume version, analyze fit against a job p
 - CSV and Excel export, CSV import, de-duplication, inline editing, and admin read-only overview.
 - Pipeline insights for active pipeline, interview/offer rate, follow-up pressure, and resume usage.
 
+## Marketing Mix Optimizer Demo
+
+This repo also includes a standalone AI-powered Marketing Mix Optimization prototype:
+
+- `marketing_mix_model.py` builds the modeling layer: synthetic MMX data, saturated spend features, ridge regression, channel contribution, ROI, CAC, simulation, and budget optimization.
+- `mmx_app.py` turns the model into a Streamlit dashboard with spend/revenue trends, channel contribution, ROI by channel, diminishing returns curves, a simulation tool, and an AI recommendation panel.
+
+Run it locally:
+
+```bash
+streamlit run mmx_app.py
+```
+
+The app works with the built-in sample dataset or an uploaded CSV. Uploaded files should include date, revenue/sales, and spend columns for Google Ads, Meta/Facebook Ads, Instagram Ads, TV, Email, and Promotions/Discounts. Include customers/conversions if you want CAC calculated from uploaded data.
+
 ## Project Structure
 
 ```text
@@ -24,6 +39,8 @@ NextRole helps users choose the best resume version, analyze fit against a job p
 |-- autofill.py         # Job field extraction
 |-- db.py               # Postgres connection helper
 |-- db_store.py         # Tracker and resume persistence
+|-- marketing_mix_model.py # Marketing mix modeling, simulation, and optimization
+|-- mmx_app.py          # Standalone Streamlit marketing mix optimizer
 |-- tools.py            # Fit scoring, job fetch, resume ranking helpers
 |-- requirements.txt
 `-- tests/
