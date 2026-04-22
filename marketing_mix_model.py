@@ -23,6 +23,15 @@ CHANNEL_LABELS: Dict[str, str] = {
 
 DEFAULT_CHANNELS = tuple(CHANNEL_LABELS.keys())
 
+DEFAULT_ADSTOCK_DECAYS: Dict[str, float] = {
+    "google_ads": 0.35,
+    "meta_ads": 0.40,
+    "instagram_ads": 0.38,
+    "tv_ads": 0.65,
+    "email_marketing": 0.20,
+    "promotions": 0.25,
+}
+
 _COLUMN_ALIASES = {
     "week": DATE_COL,
     "date": DATE_COL,
@@ -238,6 +247,75 @@ def fit_marketing_mix_model(
     )
 
 
+def apply_adstock(values: Sequence[float], decay: float) -> np.ndarray:
+    """Carry marketing spend forward so delayed impact is represented in the model."""
+    decay = min(max(float(decay), 0.0), 0.95)
+    adstocked = np.zeros(len(values), dtype=float)
+    previous = 0.0
+
+    for idx, value in enumerate(values):
+        current = max(float(value), 0.0)
+        adstocked[idx] = current + decay * previous
+        previous = adstocked[idx]
+
+    return adstocked
+
+
+def evaluate_model_against_baseline(
+    data: pd.DataFrame,
+    channel_cols: Sequence[str] = DEFAULT_CHANNELS,
+    regularization: float = 1.5,
+    test_size: float = 0.20,
+) -> Dict[str, object]:
+    """Run a time-based train/test evaluation and compare against a simple baseline."""
+    frame = _coerce_model_input(data, channel_cols, require_revenue=True)
+    frame = frame.sort_values(DATE_COL).reset_index(drop=True)
+    if len(frame) < 12:
+        raise ValueError("At least 12 rows are needed for train/test evaluation.")
+
+    split_idx = int(len(frame) * (1 - float(test_size)))
+    split_idx = min(max(split_idx, 6), len(frame) - 3)
+    train_df = frame.iloc[:split_idx].copy()
+    test_df = frame.iloc[split_idx:].copy()
+
+    model = fit_marketing_mix_model(train_df, channel_cols=channel_cols, regularization=regularization)
+    model_predictions = model.predict(test_df)
+    actual = pd.to_numeric(test_df[TARGET_COL], errors="coerce").to_numpy(dtype=float)
+
+    baseline_value = float(pd.to_numeric(train_df[TARGET_COL], errors="coerce").mean())
+    baseline_predictions = np.full(len(test_df), baseline_value, dtype=float)
+
+    prediction_df = pd.DataFrame(
+        {
+            DATE_COL: test_df[DATE_COL].to_numpy(),
+            "Actual Revenue": actual,
+            "MMX Prediction": model_predictions,
+            "Baseline Prediction": baseline_predictions,
+            "MMX Error": actual - model_predictions,
+            "Baseline Error": actual - baseline_predictions,
+        }
+    )
+
+    model_metrics = _regression_metrics(actual, model_predictions)
+    baseline_metrics = _regression_metrics(actual, baseline_predictions)
+    mape_improvement = baseline_metrics["mape"] - model_metrics["mape"]
+    rmse_improvement_pct = _safe_pct(
+        baseline_metrics["rmse"] - model_metrics["rmse"],
+        baseline_metrics["rmse"],
+    )
+
+    return {
+        "train_rows": len(train_df),
+        "test_rows": len(test_df),
+        "split_date": pd.to_datetime(test_df[DATE_COL]).min(),
+        "model_metrics": model_metrics,
+        "baseline_metrics": baseline_metrics,
+        "mape_improvement": float(mape_improvement),
+        "rmse_improvement_pct": float(rmse_improvement_pct),
+        "predictions": prediction_df,
+    }
+
+
 def build_feature_frame(
     data: pd.DataFrame,
     channel_cols: Sequence[str],
@@ -258,6 +336,9 @@ def build_feature_frame(
     for channel in channel_cols:
         spend = pd.to_numeric(frame[channel], errors="coerce").fillna(0).clip(lower=0)
         features[f"log_{channel}"] = np.log1p(spend)
+        decay = DEFAULT_ADSTOCK_DECAYS.get(channel, 0.35)
+        adstocked = apply_adstock(spend.to_numpy(dtype=float), decay=decay)
+        features[f"adstock_{channel}"] = np.log1p(adstocked)
 
     return features.astype(float)
 

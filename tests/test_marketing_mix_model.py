@@ -7,7 +7,9 @@ from marketing_mix_model import (
     CHANNEL_LABELS,
     CUSTOMER_COL,
     DEFAULT_CHANNELS,
+    apply_adstock,
     build_response_curve,
+    evaluate_model_against_baseline,
     estimate_channel_contribution,
     fit_marketing_mix_model,
     generate_recommendations,
@@ -59,6 +61,19 @@ class MarketingMixModelTests(unittest.TestCase):
     def test_model_fits_demo_data_with_useful_accuracy(self):
         self.assertGreater(self.model.metrics["r2"], 0.75)
         self.assertLess(self.model.metrics["mape"], 5)
+
+    def test_adstock_carries_spend_forward(self):
+        adstocked = apply_adstock([100, 0, 0], decay=0.5)
+
+        self.assertEqual(adstocked.tolist(), [100.0, 50.0, 25.0])
+
+    def test_train_test_evaluation_compares_against_baseline(self):
+        evaluation = evaluate_model_against_baseline(self.data)
+
+        self.assertEqual(evaluation["train_rows"] + evaluation["test_rows"], len(self.data))
+        self.assertIn("model_metrics", evaluation)
+        self.assertIn("baseline_metrics", evaluation)
+        self.assertEqual(len(evaluation["predictions"]), evaluation["test_rows"])
 
     def test_channel_contribution_returns_roi_for_each_channel(self):
         contribution = estimate_channel_contribution(self.model, self.data)

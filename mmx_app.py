@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import os
 from typing import Mapping
 
@@ -11,10 +12,13 @@ from dotenv import load_dotenv
 from marketing_mix_model import (
     CHANNEL_LABELS,
     CUSTOMER_COL,
+    DATE_COL,
+    DEFAULT_ADSTOCK_DECAYS,
     DEFAULT_CHANNELS,
     TARGET_COL,
     build_response_curve,
     estimate_channel_contribution,
+    evaluate_model_against_baseline,
     fit_marketing_mix_model,
     generate_recommendations,
     generate_sample_marketing_data,
@@ -75,6 +79,47 @@ st.markdown(
         border-radius: 6px;
         color: #e5eefb;
       }
+      .hero {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background:
+          linear-gradient(135deg, rgba(56, 215, 193, 0.14), rgba(124, 140, 255, 0.08)),
+          rgba(15, 23, 42, 0.76);
+        border-radius: 8px;
+        padding: 1.35rem 1.45rem;
+        margin-bottom: 1rem;
+      }
+      .hero h2 {
+        color: #f8fafc;
+        font-size: 2rem;
+        line-height: 1.12;
+        margin: 0 0 0.45rem;
+      }
+      .hero p {
+        color: rgba(226, 232, 240, 0.78);
+        font-size: 1rem;
+        margin: 0;
+      }
+      .feature-card {
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.58);
+        border-radius: 8px;
+        padding: 0.9rem;
+        min-height: 120px;
+      }
+      .feature-card h4 {
+        color: #f8fafc;
+        margin: 0 0 0.35rem;
+      }
+      .feature-card p {
+        color: rgba(226, 232, 240, 0.74);
+        margin: 0;
+      }
+      .risk-ok {
+        border-left: 3px solid #38d7c1;
+      }
+      .risk-watch {
+        border-left: 3px solid #f59e0b;
+      }
       div[data-testid="stMetric"] {
         border: 1px solid rgba(148, 163, 184, 0.16);
         background: rgba(15, 23, 42, 0.55);
@@ -100,6 +145,11 @@ def train_model(data: pd.DataFrame, regularization: float):
     return model, contribution, baseline
 
 
+@st.cache_data(show_spinner=False)
+def evaluate_current_model(data: pd.DataFrame, regularization: float):
+    return evaluate_model_against_baseline(data, regularization=regularization)
+
+
 def money(value: float) -> str:
     return f"${value:,.0f}"
 
@@ -108,11 +158,241 @@ def pct(value: float) -> str:
     return f"{value:.1f}%"
 
 
+def signed_money(value: float) -> str:
+    prefix = "+" if value >= 0 else "-"
+    return f"{prefix}${abs(value):,.0f}"
+
+
+def dataframe_to_markdown_table(frame: pd.DataFrame) -> str:
+    headers = list(frame.columns)
+    rows = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for _, row in frame.iterrows():
+        cells = []
+        for value in row:
+            if isinstance(value, float):
+                cells.append(f"{value:,.2f}")
+            else:
+                cells.append(str(value))
+        rows.append("| " + " | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
 def prepare_uploaded_data(upload) -> pd.DataFrame:
     if upload is None:
         return load_sample_data()
     frame = pd.read_csv(upload)
     return normalize_marketing_data(frame)
+
+
+def build_csv_template() -> bytes:
+    template = pd.DataFrame(
+        [
+            {
+                DATE_COL: "2026-01-04",
+                "google_ads": 12000,
+                "meta_ads": 9000,
+                "instagram_ads": 7000,
+                "tv_ads": 18000,
+                "email_marketing": 2500,
+                "promotions": 4500,
+                TARGET_COL: 260000,
+                CUSTOMER_COL: 720,
+            }
+        ]
+    )
+    return template.to_csv(index=False).encode("utf-8")
+
+
+def prediction_chart(predictions: pd.DataFrame) -> alt.Chart:
+    long = predictions.melt(
+        id_vars=[DATE_COL],
+        value_vars=["Actual Revenue", "MMX Prediction", "Baseline Prediction"],
+        var_name="Series",
+        value_name="Revenue",
+    )
+    return (
+        alt.Chart(long)
+        .mark_line(point=True, strokeWidth=3)
+        .encode(
+            x=alt.X(f"{DATE_COL}:T", title=None),
+            y=alt.Y("Revenue:Q", title="Revenue"),
+            color=alt.Color(
+                "Series:N",
+                scale=alt.Scale(range=["#f8fafc", "#38d7c1", "#f97316"]),
+                legend=alt.Legend(orient="top"),
+            ),
+            tooltip=[
+                alt.Tooltip(f"{DATE_COL}:T", title="Week"),
+                alt.Tooltip("Series:N"),
+                alt.Tooltip("Revenue:Q", format="$,.0f"),
+            ],
+        )
+        .properties(height=330)
+    )
+
+
+def evaluation_metric_chart(evaluation: Mapping[str, object]) -> alt.Chart:
+    model_metrics = evaluation["model_metrics"]
+    baseline_metrics = evaluation["baseline_metrics"]
+    rows = [
+        {"Metric": "MAPE", "Model": "MMX", "Value": model_metrics["mape"]},
+        {"Metric": "MAPE", "Model": "Baseline", "Value": baseline_metrics["mape"]},
+        {"Metric": "RMSE", "Model": "MMX", "Value": model_metrics["rmse"]},
+        {"Metric": "RMSE", "Model": "Baseline", "Value": baseline_metrics["rmse"]},
+    ]
+    return (
+        alt.Chart(pd.DataFrame(rows))
+        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X("Metric:N", title=None),
+            y=alt.Y("Value:Q", title=None),
+            color=alt.Color(
+                "Model:N",
+                scale=alt.Scale(range=["#38d7c1", "#f97316"]),
+                legend=alt.Legend(orient="top"),
+            ),
+            xOffset="Model:N",
+            tooltip=[alt.Tooltip("Model:N"), alt.Tooltip("Metric:N"), alt.Tooltip("Value:Q", format=",.2f")],
+        )
+        .properties(height=300)
+    )
+
+
+def build_responsible_ai_audit(
+    data: pd.DataFrame,
+    evaluation: Mapping[str, object] | None,
+    contribution: pd.DataFrame,
+) -> pd.DataFrame:
+    weeks = len(data)
+    spend = data[list(DEFAULT_CHANNELS)].sum()
+    total_spend = float(spend.sum())
+    top_channel_share = float(spend.max() / total_spend) if total_spend else 0.0
+    has_customers = CUSTOMER_COL in data.columns and float(data[CUSTOMER_COL].sum()) > 0
+    mape = float(evaluation["model_metrics"]["mape"]) if evaluation else None
+
+    rows = [
+        {
+            "Area": "Data representativeness",
+            "Status": "Watch" if weeks < 104 else "Managed",
+            "Risk": "Short history can overstate recent campaigns or miss yearly seasonality.",
+            "Mitigation": "Use at least two years of weekly data where possible and refresh the model monthly.",
+        },
+        {
+            "Area": "Channel concentration",
+            "Status": "Watch" if top_channel_share > 0.45 else "Managed",
+            "Risk": f"The largest channel is {top_channel_share:.0%} of tracked spend.",
+            "Mitigation": "Set optimizer bounds and review recommendations before making large reallocations.",
+        },
+        {
+            "Area": "Customer privacy",
+            "Status": "Managed" if has_customers else "Watch",
+            "Risk": "Customer-level data may contain sensitive identifiers if raw CRM exports are uploaded.",
+            "Mitigation": "Use aggregated weekly channel data only; avoid names, emails, device IDs, or protected attributes.",
+        },
+        {
+            "Area": "Model reliability",
+            "Status": "Watch" if mape is not None and mape > 10 else "Managed",
+            "Risk": "Forecast error can lead to overconfident budget changes.",
+            "Mitigation": "Compare against the baseline, monitor MAPE, and show best/base/worst ranges before launch.",
+        },
+        {
+            "Area": "Recommendation hallucination",
+            "Status": "Managed",
+            "Risk": "Generated recommendations may sound confident even when evidence is weak.",
+            "Mitigation": "Ground the AI narrative in model outputs and fall back to deterministic recommendations.",
+        },
+        {
+            "Area": "Fairness and proxy bias",
+            "Status": "Watch",
+            "Risk": "Geo, audience, or platform targeting can proxy for sensitive groups even without explicit demographics.",
+            "Mitigation": "Audit campaign segments outside this prototype before activating recommendations in production.",
+        },
+    ]
+
+    if not contribution.empty and float(contribution["ROI"].max()) > 3 * max(float(contribution["ROI"].median()), 0.01):
+        rows.append(
+            {
+                "Area": "Outlier ROI",
+                "Status": "Watch",
+                "Risk": "One channel appears much stronger than the rest, which can signal sparse data or attribution bias.",
+                "Mitigation": "Validate with holdout tests or incrementality experiments before major spend shifts.",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def build_executive_report(
+    data: pd.DataFrame,
+    contribution: pd.DataFrame,
+    optimization: Mapping[str, object],
+    simulation: Mapping[str, object],
+    evaluation: Mapping[str, object] | None,
+    recommendations: list[str],
+) -> str:
+    total_spend_value = float(data[list(DEFAULT_CHANNELS)].sum().sum())
+    total_revenue_value = float(data[TARGET_COL].sum())
+    total_customers_value = float(data[CUSTOMER_COL].sum()) if CUSTOMER_COL in data.columns else 0.0
+    cac_value = total_spend_value / total_customers_value if total_customers_value else None
+    top_roi = contribution.sort_values("ROI", ascending=False).iloc[0]
+    weakest_roi = contribution.sort_values("ROI", ascending=True).iloc[0]
+    allocation = optimization["allocation"][
+        ["Channel", "Current Spend", "Recommended Spend", "Spend Shift", "Change %"]
+    ].copy()
+
+    lines = [
+        "# Marketing Mix Optimization Executive Report",
+        "",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+        "## Business KPI Snapshot",
+        f"- Revenue analyzed: {money(total_revenue_value)}",
+        f"- Marketing spend analyzed: {money(total_spend_value)}",
+        f"- Marketing ROI: {total_revenue_value / total_spend_value:.2f}x" if total_spend_value else "- Marketing ROI: N/A",
+        f"- CAC: {money(cac_value)}" if cac_value is not None else "- CAC: N/A",
+        "",
+        "## Recommended Budget Action",
+        f"- Current next-period budget: {money(optimization['current_budget'])}",
+        f"- Recommended next-period budget: {money(optimization['recommended_budget'])}",
+        f"- Predicted revenue impact: {signed_money(optimization['revenue_delta'])} ({optimization['revenue_delta_pct']:.1f}%)",
+        "",
+        "## Channel Insights",
+        f"- Highest estimated ROI: {top_roi['Channel']} at {float(top_roi['ROI']):.2f}x",
+        f"- Lowest estimated ROI: {weakest_roi['Channel']} at {float(weakest_roi['ROI']):.2f}x",
+        "",
+        "## Model Evaluation",
+    ]
+
+    if evaluation:
+        lines.extend(
+            [
+                f"- Train rows: {evaluation['train_rows']}; test rows: {evaluation['test_rows']}",
+                f"- MMX MAPE: {evaluation['model_metrics']['mape']:.2f}%",
+                f"- Baseline MAPE: {evaluation['baseline_metrics']['mape']:.2f}%",
+                f"- RMSE improvement vs baseline: {evaluation['rmse_improvement_pct']:.1f}%",
+            ]
+        )
+    else:
+        lines.append("- Evaluation unavailable because the uploaded dataset is too short.")
+
+    lines.extend(["", "## Active Simulation", f"- Predicted revenue impact: {signed_money(simulation['revenue_delta'])} ({simulation['revenue_delta_pct']:.1f}%)", ""])
+    lines.append("## Recommended Allocation")
+    lines.append(dataframe_to_markdown_table(allocation))
+    lines.extend(["", "## Management Recommendations"])
+    lines.extend([f"- {item}" for item in recommendations])
+    lines.extend(
+        [
+            "",
+            "## Responsible AI Notes",
+            "- Treat recommendations as decision support, not automated media-buying instructions.",
+            "- Validate large reallocations with incrementality tests or controlled experiments.",
+            "- Use aggregated spend/revenue/customer data and avoid customer-level identifiers.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def line_spend_revenue_chart(data: pd.DataFrame) -> alt.Chart:
@@ -301,6 +581,13 @@ def maybe_generate_openai_recommendations(
 with st.sidebar:
     st.title("MMX")
     uploaded = st.file_uploader("Marketing dataset", type=["csv"])
+    st.download_button(
+        "Download CSV template",
+        data=build_csv_template(),
+        file_name="marketing_mix_template.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
     regularization = st.slider("Model regularization", 0.1, 5.0, 1.5, 0.1)
     use_openai = st.toggle("OpenAI recommendation narrative", value=False)
 
@@ -312,6 +599,11 @@ try:
 except Exception as exc:
     st.error(f"Could not train the marketing mix model: {exc}")
     st.stop()
+
+try:
+    evaluation_results = evaluate_current_model(data, regularization)
+except Exception:
+    evaluation_results = None
 
 
 total_spend = float(data[list(DEFAULT_CHANNELS)].sum().sum())
@@ -330,9 +622,91 @@ kpi_cols[3].metric("CAC", money(cac) if cac is not None else "N/A")
 kpi_cols[4].metric("Model R-squared", f"{model.metrics['r2']:.2f}")
 kpi_cols[5].metric("MAPE", pct(model.metrics["mape"]))
 
-tabs = st.tabs(["Dashboard", "Simulation", "Optimization", "Model"])
+tabs = st.tabs(
+    [
+        "Product",
+        "Dashboard",
+        "Simulation",
+        "Optimization",
+        "Evaluation",
+        "Responsible AI",
+        "Model",
+    ]
+)
 
 with tabs[0]:
+    st.markdown(
+        """
+        <div class="hero">
+          <h2>Allocate marketing budget with evidence, not guesswork.</h2>
+          <p>
+            A decision-support product for growth leaders who need to identify which channels drive revenue,
+            simulate budget shifts, and reduce CAC while protecting marketing ROI.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    who, why, how = st.columns(3)
+    with who:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>Who</h4>
+              <p>Marketing managers, growth teams, and finance partners managing multi-channel budgets.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with why:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>Why</h4>
+              <p>Ad platforms report activity, but executives need revenue impact, ROI, and CAC tradeoffs.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with how:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>How</h4>
+              <p>MMM prediction, adstock carryover, simulation, optimization, and grounded AI recommendations.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    product_cols = st.columns(4)
+    product_cols[0].metric("Business objective", "ROI up")
+    product_cols[1].metric("Operating KPI", "CAC down")
+    product_cols[2].metric("Planning output", "Budget mix")
+    product_cols[3].metric("AI approach", "Prediction + GenAI")
+
+    feature_cols = st.columns(4)
+    feature_copy = [
+        ("Dashboard", "Channel contribution, spend mix, and revenue trend analysis."),
+        ("Simulator", "Budget what-if scenarios with predicted revenue impact."),
+        ("Optimizer", "Recommended allocation under a selected spend constraint."),
+        ("Governance", "Risk controls for privacy, bias, hallucination, and model reliability."),
+    ]
+    for col, (title, body) in zip(feature_cols, feature_copy):
+        with col:
+            st.markdown(
+                f"""
+                <div class="feature-card">
+                  <h4>{title}</h4>
+                  <p>{body}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+with tabs[1]:
     left, right = st.columns([1.45, 1])
     with left:
         st.subheader("Spend and revenue trend")
@@ -349,7 +723,7 @@ with tabs[0]:
         st.subheader("Channel spend mix")
         st.altair_chart(channel_spend_chart(data), use_container_width=True)
 
-with tabs[1]:
+with tabs[2]:
     st.subheader("Budget simulation")
     sliders = {}
     slider_cols = st.columns(3)
@@ -390,7 +764,7 @@ with tabs[1]:
         curve = build_response_curve(model, baseline_scenario, selected_channel)
         st.altair_chart(response_curve_chart(curve), use_container_width=True)
 
-with tabs[2]:
+with tabs[3]:
     current_weekly_budget = sum(float(baseline_scenario[channel]) for channel in DEFAULT_CHANNELS)
     target_budget = st.slider(
         "Next-period marketing budget",
@@ -439,17 +813,121 @@ with tabs[2]:
             if use_openai
             else None
         )
+        deterministic_recommendations = generate_recommendations(contribution_df, optimization, simulation)
         if narrative:
             st.markdown(narrative)
         else:
-            for item in generate_recommendations(contribution_df, optimization, simulation):
+            for item in deterministic_recommendations:
                 st.markdown(f"<div class='recommendation'>{item}</div>", unsafe_allow_html=True)
 
-with tabs[3]:
+        st.divider()
+        report = build_executive_report(
+            data=data,
+            contribution=contribution_df,
+            optimization=optimization,
+            simulation=simulation,
+            evaluation=evaluation_results,
+            recommendations=deterministic_recommendations,
+        )
+        st.download_button(
+            "Download executive report",
+            data=report.encode("utf-8"),
+            file_name="marketing_mix_executive_report.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+        st.download_button(
+            "Download allocation CSV",
+            data=optimization["allocation"].to_csv(index=False).encode("utf-8"),
+            file_name="recommended_budget_allocation.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+with tabs[4]:
+    st.subheader("Train/test evaluation")
+    if evaluation_results:
+        eval_cols = st.columns(5)
+        eval_cols[0].metric("Train rows", f"{evaluation_results['train_rows']}")
+        eval_cols[1].metric("Test rows", f"{evaluation_results['test_rows']}")
+        eval_cols[2].metric("MMX MAPE", pct(evaluation_results["model_metrics"]["mape"]))
+        eval_cols[3].metric("Baseline MAPE", pct(evaluation_results["baseline_metrics"]["mape"]))
+        eval_cols[4].metric("RMSE lift", pct(evaluation_results["rmse_improvement_pct"]))
+
+        pred_left, pred_right = st.columns([1.35, 1])
+        with pred_left:
+            st.altair_chart(prediction_chart(evaluation_results["predictions"]), use_container_width=True)
+        with pred_right:
+            st.altair_chart(evaluation_metric_chart(evaluation_results), use_container_width=True)
+
+        metrics_df = pd.DataFrame(
+            [
+                {"Metric": "R-squared", "MMX": evaluation_results["model_metrics"]["r2"], "Baseline": evaluation_results["baseline_metrics"]["r2"]},
+                {"Metric": "MAE", "MMX": evaluation_results["model_metrics"]["mae"], "Baseline": evaluation_results["baseline_metrics"]["mae"]},
+                {"Metric": "RMSE", "MMX": evaluation_results["model_metrics"]["rmse"], "Baseline": evaluation_results["baseline_metrics"]["rmse"]},
+                {"Metric": "MAPE", "MMX": evaluation_results["model_metrics"]["mape"], "Baseline": evaluation_results["baseline_metrics"]["mape"]},
+            ]
+        )
+        st.dataframe(
+            metrics_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "MMX": st.column_config.NumberColumn(format="%.2f"),
+                "Baseline": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+    else:
+        st.info("Upload at least 12 dated observations to show train/test evaluation.")
+
+with tabs[5]:
+    st.subheader("Responsible AI and risk audit")
+    risk_df = build_responsible_ai_audit(data, evaluation_results, contribution_df)
+    managed = int((risk_df["Status"] == "Managed").sum())
+    watch = int((risk_df["Status"] == "Watch").sum())
+    risk_cols = st.columns(4)
+    risk_cols[0].metric("Managed controls", managed)
+    risk_cols[1].metric("Watch items", watch)
+    risk_cols[2].metric("Privacy posture", "Aggregated")
+    risk_cols[3].metric("Recommendation mode", "Human review")
+
+    for _, row in risk_df.iterrows():
+        css_class = "risk-ok" if row["Status"] == "Managed" else "risk-watch"
+        st.markdown(
+            f"""
+            <div class="feature-card {css_class}">
+              <h4>{row['Area']} · {row['Status']}</h4>
+              <p><strong>Risk:</strong> {row['Risk']}</p>
+              <p><strong>Mitigation:</strong> {row['Mitigation']}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.dataframe(risk_df, hide_index=True, use_container_width=True)
+
+with tabs[6]:
     model_left, model_right = st.columns([1, 1])
     with model_left:
         st.subheader("Training data")
         st.dataframe(data.tail(12), hide_index=True, use_container_width=True)
+        st.subheader("Adstock carryover settings")
+        adstock_df = pd.DataFrame(
+            [
+                {
+                    "Channel": CHANNEL_LABELS[channel],
+                    "Carryover Decay": DEFAULT_ADSTOCK_DECAYS[channel],
+                    "Interpretation": "Higher values mean spend influence lasts longer.",
+                }
+                for channel in DEFAULT_CHANNELS
+            ]
+        )
+        st.dataframe(
+            adstock_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={"Carryover Decay": st.column_config.NumberColumn(format="%.2f")},
+        )
     with model_right:
         st.subheader("Model diagnostics")
         diagnostics = pd.DataFrame(

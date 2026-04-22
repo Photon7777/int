@@ -18,8 +18,8 @@ NextRole helps users choose the best resume version, analyze fit against a job p
 
 This repo also includes a standalone AI-powered Marketing Mix Optimization prototype:
 
-- `marketing_mix_model.py` builds the modeling layer: synthetic MMX data, saturated spend features, ridge regression, channel contribution, ROI, CAC, simulation, and budget optimization.
-- `mmx_app.py` turns the model into a Streamlit dashboard with spend/revenue trends, channel contribution, ROI by channel, diminishing returns curves, a simulation tool, and an AI recommendation panel.
+- `marketing_mix_model.py` builds the modeling layer: synthetic MMX data, adstock/carryover features, saturated spend features, ridge regression, train/test evaluation, channel contribution, ROI, CAC, simulation, and budget optimization.
+- `mmx_app.py` turns the model into a Streamlit product with a landing page, dashboard, simulation tool, optimizer, executive report download, model evaluation, responsible AI risk audit, and AI recommendation panel.
 
 Run it locally:
 
