@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 import os
 from typing import Mapping
 
@@ -81,6 +82,45 @@ st.markdown(
         font-size: 0.82rem;
         margin-top: 0.18rem;
       }
+      .kpi-card {
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.55);
+        border-radius: 8px;
+        padding: 0.8rem 0.95rem;
+        min-height: 104px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow: visible;
+      }
+      .kpi-label {
+        color: rgba(226, 232, 240, 0.82);
+        font-size: 0.86rem;
+        font-weight: 650;
+        line-height: 1.2;
+        margin-bottom: 0.55rem;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .kpi-value {
+        color: #f8fafc;
+        font-size: 1.55rem;
+        font-weight: 720;
+        line-height: 1.16;
+        letter-spacing: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: normal;
+      }
+      .kpi-delta {
+        color: #38d7c1;
+        font-size: 0.86rem;
+        font-weight: 650;
+        line-height: 1.2;
+        margin-top: 0.45rem;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
       .panel {
         border: 1px solid rgba(148, 163, 184, 0.18);
         background: rgba(15, 23, 42, 0.68);
@@ -142,6 +182,12 @@ st.markdown(
         border-radius: 8px;
         padding: 0.8rem 0.95rem;
       }
+      div[data-testid="stMetricValue"],
+      div[data-testid="stMetricValue"] div {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -177,6 +223,24 @@ def pct(value: float) -> str:
 def signed_money(value: float) -> str:
     prefix = "+" if value >= 0 else "-"
     return f"{prefix}${abs(value):,.0f}"
+
+
+def render_metric_card(label: object, value: object, delta: object | None = None) -> None:
+    delta_markup = (
+        f'<div class="kpi-delta">{escape(str(delta))}</div>'
+        if delta is not None and str(delta) != ""
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+          <div class="kpi-label">{escape(str(label))}</div>
+          <div class="kpi-value">{escape(str(value))}</div>
+          {delta_markup}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def dataframe_to_markdown_table(frame: pd.DataFrame) -> str:
@@ -631,12 +695,17 @@ cac = float(total_spend / total_customers) if total_customers else None
 st.title("Marketing Mix Optimization Platform")
 
 kpi_cols = st.columns(6)
-kpi_cols[0].metric("Revenue", money(total_revenue))
-kpi_cols[1].metric("Marketing spend", money(total_spend))
-kpi_cols[2].metric("Marketing ROI", f"{model_roi:.2f}x")
-kpi_cols[3].metric("CAC", money(cac) if cac is not None else "N/A")
-kpi_cols[4].metric("Model R-squared", f"{model.metrics['r2']:.2f}")
-kpi_cols[5].metric("MAPE", pct(model.metrics["mape"]))
+top_metrics = [
+    ("Revenue", money(total_revenue)),
+    ("Marketing spend", money(total_spend)),
+    ("Marketing ROI", f"{model_roi:.2f}x"),
+    ("CAC", money(cac) if cac is not None else "N/A"),
+    ("Model R-squared", f"{model.metrics['r2']:.2f}"),
+    ("MAPE", pct(model.metrics["mape"])),
+]
+for col, (label, value) in zip(kpi_cols, top_metrics):
+    with col:
+        render_metric_card(label, value)
 
 tabs = st.tabs(
     [
@@ -698,10 +767,15 @@ with tabs[0]:
 
     st.divider()
     product_cols = st.columns(4)
-    product_cols[0].metric("Business objective", "ROI up")
-    product_cols[1].metric("Operating KPI", "CAC down")
-    product_cols[2].metric("Planning output", "Budget mix")
-    product_cols[3].metric("AI approach", "Prediction + GenAI")
+    product_metrics = [
+        ("Business objective", "ROI up"),
+        ("Operating KPI", "CAC down"),
+        ("Planning output", "Budget mix"),
+        ("AI approach", "Prediction + GenAI"),
+    ]
+    for col, (label, value) in zip(product_cols, product_metrics):
+        with col:
+            render_metric_card(label, value)
 
     feature_cols = st.columns(4)
     feature_copy = [
@@ -756,14 +830,15 @@ with tabs[2]:
 
     simulation = simulate_spend_change(model, baseline_scenario, sliders)
     metric_cols = st.columns(4)
-    metric_cols[0].metric("Current revenue", money(simulation["current_revenue"]))
-    metric_cols[1].metric(
-        "Scenario revenue",
-        money(simulation["scenario_revenue"]),
-        pct(simulation["revenue_delta_pct"]),
-    )
-    metric_cols[2].metric("Budget change", money(simulation["budget_delta"]))
-    metric_cols[3].metric("Scenario budget", money(simulation["scenario_budget"]))
+    simulation_metrics = [
+        ("Current revenue", money(simulation["current_revenue"]), None),
+        ("Scenario revenue", money(simulation["scenario_revenue"]), pct(simulation["revenue_delta_pct"])),
+        ("Budget change", signed_money(simulation["budget_delta"]), None),
+        ("Scenario budget", money(simulation["scenario_budget"]), None),
+    ]
+    for col, (label, value, delta) in zip(metric_cols, simulation_metrics):
+        with col:
+            render_metric_card(label, value, delta)
 
     sim_left, sim_right = st.columns([1.1, 1])
     with sim_left:
@@ -793,14 +868,15 @@ with tabs[3]:
     optimization = optimize_budget(model, baseline_scenario, total_budget=target_budget)
 
     opt_cols = st.columns(4)
-    opt_cols[0].metric("Current budget", money(optimization["current_budget"]))
-    opt_cols[1].metric("Recommended budget", money(optimization["recommended_budget"]))
-    opt_cols[2].metric(
-        "Optimized revenue",
-        money(optimization["optimized_revenue"]),
-        pct(optimization["revenue_delta_pct"]),
-    )
-    opt_cols[3].metric("Unallocated", money(optimization["unallocated_budget"]))
+    optimization_metrics = [
+        ("Current budget", money(optimization["current_budget"]), None),
+        ("Recommended budget", money(optimization["recommended_budget"]), None),
+        ("Optimized revenue", money(optimization["optimized_revenue"]), pct(optimization["revenue_delta_pct"])),
+        ("Unallocated", money(optimization["unallocated_budget"]), None),
+    ]
+    for col, (label, value, delta) in zip(opt_cols, optimization_metrics):
+        with col:
+            render_metric_card(label, value, delta)
 
     opt_left, opt_right = st.columns([1.2, 1])
     with opt_left:
@@ -864,11 +940,16 @@ with tabs[4]:
     st.subheader("Train/test evaluation")
     if evaluation_results:
         eval_cols = st.columns(5)
-        eval_cols[0].metric("Train rows", f"{evaluation_results['train_rows']}")
-        eval_cols[1].metric("Test rows", f"{evaluation_results['test_rows']}")
-        eval_cols[2].metric("MMX MAPE", pct(evaluation_results["model_metrics"]["mape"]))
-        eval_cols[3].metric("Baseline MAPE", pct(evaluation_results["baseline_metrics"]["mape"]))
-        eval_cols[4].metric("RMSE lift", pct(evaluation_results["rmse_improvement_pct"]))
+        evaluation_metrics = [
+            ("Train rows", f"{evaluation_results['train_rows']}"),
+            ("Test rows", f"{evaluation_results['test_rows']}"),
+            ("MMX MAPE", pct(evaluation_results["model_metrics"]["mape"])),
+            ("Baseline MAPE", pct(evaluation_results["baseline_metrics"]["mape"])),
+            ("RMSE lift", pct(evaluation_results["rmse_improvement_pct"])),
+        ]
+        for col, (label, value) in zip(eval_cols, evaluation_metrics):
+            with col:
+                render_metric_card(label, value)
 
         pred_left, pred_right = st.columns([1.35, 1])
         with pred_left:
@@ -902,10 +983,15 @@ with tabs[5]:
     managed = int((risk_df["Status"] == "Managed").sum())
     watch = int((risk_df["Status"] == "Watch").sum())
     risk_cols = st.columns(4)
-    risk_cols[0].metric("Managed controls", managed)
-    risk_cols[1].metric("Watch items", watch)
-    risk_cols[2].metric("Privacy posture", "Aggregated")
-    risk_cols[3].metric("Recommendation mode", "Human review")
+    risk_metrics = [
+        ("Managed controls", managed),
+        ("Watch items", watch),
+        ("Privacy posture", "Aggregated"),
+        ("Recommendation mode", "Human review"),
+    ]
+    for col, (label, value) in zip(risk_cols, risk_metrics):
+        with col:
+            render_metric_card(label, value)
 
     for _, row in risk_df.iterrows():
         css_class = "risk-ok" if row["Status"] == "Managed" else "risk-watch"
