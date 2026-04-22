@@ -13,12 +13,10 @@ from marketing_mix_model import (
     CHANNEL_LABELS,
     CUSTOMER_COL,
     DATE_COL,
-    DEFAULT_ADSTOCK_DECAYS,
     DEFAULT_CHANNELS,
     TARGET_COL,
     build_response_curve,
     estimate_channel_contribution,
-    evaluate_model_against_baseline,
     fit_marketing_mix_model,
     generate_recommendations,
     generate_sample_marketing_data,
@@ -28,6 +26,24 @@ from marketing_mix_model import (
     prepare_marketing_data,
     simulate_spend_change,
 )
+
+try:
+    from marketing_mix_model import DEFAULT_ADSTOCK_DECAYS
+except ImportError:
+    DEFAULT_ADSTOCK_DECAYS = {
+        "google_ads": 0.35,
+        "meta_ads": 0.40,
+        "instagram_ads": 0.38,
+        "tv_ads": 0.65,
+        "email_marketing": 0.20,
+        "promotions": 0.25,
+    }
+
+try:
+    from marketing_mix_model import evaluate_model_against_baseline
+except ImportError:
+    def evaluate_model_against_baseline(*args, **kwargs):
+        raise ValueError("Train/test evaluation requires the latest marketing_mix_model.py.")
 
 
 load_dotenv()
