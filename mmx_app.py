@@ -972,6 +972,7 @@ with st.sidebar:
         data=build_csv_template(),
         file_name="marketing_mix_template.csv",
         mime="text/csv",
+        key="download_csv_template",
         use_container_width=True,
     )
     raw_data = read_input_data(uploaded)
@@ -1230,6 +1231,7 @@ with business_goals_tab:
         data=json.dumps(evidence_packet, indent=2, default=str).encode("utf-8"),
         file_name="mixalyzer_genai_evidence_packet.json",
         mime="application/json",
+        key="download_business_goals_evidence_packet",
         use_container_width=True,
     )
 
@@ -1443,6 +1445,7 @@ with optimization_tab:
             data=report.encode("utf-8"),
             file_name="marketing_mix_executive_report.md",
             mime="text/markdown",
+            key="download_optimization_executive_report",
             use_container_width=True,
         )
         st.download_button(
@@ -1450,6 +1453,7 @@ with optimization_tab:
             data=optimization["allocation"].to_csv(index=False).encode("utf-8"),
             file_name="recommended_budget_allocation.csv",
             mime="text/csv",
+            key="download_optimization_allocation_csv",
             use_container_width=True,
         )
         st.download_button(
@@ -1457,6 +1461,7 @@ with optimization_tab:
             data=json.dumps(optimization_evidence_packet, indent=2, default=str).encode("utf-8"),
             file_name="mixalyzer_genai_evidence_packet.json",
             mime="application/json",
+            key="download_optimization_evidence_packet",
             use_container_width=True,
         )
 
