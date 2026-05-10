@@ -7,8 +7,10 @@ from marketing_mix_model import (
     CHANNEL_LABELS,
     CUSTOMER_COL,
     DEFAULT_CHANNELS,
+    DEFAULT_CONTROL_COLUMNS,
     apply_column_mapping,
     apply_adstock,
+    available_control_columns,
     build_response_curve,
     build_business_kpi_scorecard,
     build_genai_evidence_packet,
@@ -37,7 +39,7 @@ class MarketingMixModelTests(unittest.TestCase):
         self.baseline = get_baseline_scenario(self.data)
 
     def test_sample_data_has_required_mmx_columns(self):
-        expected = {"date", "revenue", CUSTOMER_COL, *DEFAULT_CHANNELS}
+        expected = {"date", "revenue", CUSTOMER_COL, *DEFAULT_CHANNELS, *DEFAULT_CONTROL_COLUMNS}
 
         self.assertTrue(expected.issubset(self.data.columns))
         self.assertEqual(len(self.data), 120)
@@ -54,12 +56,19 @@ class MarketingMixModelTests(unittest.TestCase):
                 "TV Spend": [12000],
                 "Email": [2000],
                 "Discounts": [3000],
+                "Holiday": [1],
+                "Out of Stock": [0],
+                "Promotion Event": [1],
+                "Competitor Activity": [0],
+                "Product Launch": [0],
+                "Economic Index": [102.5],
             }
         )
 
         normalized = normalize_marketing_data(uploaded)
 
-        self.assertTrue({"date", "revenue", CUSTOMER_COL, *DEFAULT_CHANNELS}.issubset(normalized.columns))
+        self.assertTrue({"date", "revenue", CUSTOMER_COL, *DEFAULT_CHANNELS, *DEFAULT_CONTROL_COLUMNS}.issubset(normalized.columns))
+        self.assertEqual(set(available_control_columns(normalized)), set(DEFAULT_CONTROL_COLUMNS))
 
         prepared = prepare_marketing_data(uploaded)
         self.assertEqual(prepared["date"].dt.year.iloc[0], 2026)
@@ -86,11 +95,17 @@ class MarketingMixModelTests(unittest.TestCase):
         readiness = assess_data_readiness(mapped)
 
         self.assertEqual(mapping["google_ads"], "Google Ads Spend")
+        self.assertEqual(available_control_columns(mapped), tuple())
         self.assertGreaterEqual(readiness["score"], 65)
 
     def test_model_fits_demo_data_with_useful_accuracy(self):
         self.assertGreater(self.model.metrics["r2"], 0.75)
         self.assertLess(self.model.metrics["mape"], 5)
+
+    def test_model_includes_detected_external_controls(self):
+        expected_control_features = {f"control_{column}" for column in DEFAULT_CONTROL_COLUMNS}
+
+        self.assertTrue(expected_control_features.issubset(set(self.model.feature_columns)))
 
     def test_adstock_carries_spend_forward(self):
         adstocked = apply_adstock([100, 0, 0], decay=0.5)

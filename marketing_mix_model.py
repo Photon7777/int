@@ -23,6 +23,17 @@ CHANNEL_LABELS: Dict[str, str] = {
 
 DEFAULT_CHANNELS = tuple(CHANNEL_LABELS.keys())
 
+CONTROL_VARIABLE_LABELS: Dict[str, str] = {
+    "holiday_flag": "Holiday Flag",
+    "stockout_flag": "Stockout Flag",
+    "promo_event": "Promotion Event",
+    "competitor_campaign": "Competitor Campaign",
+    "product_launch": "Product Launch",
+    "macro_index": "Macro Index",
+}
+
+DEFAULT_CONTROL_COLUMNS = tuple(CONTROL_VARIABLE_LABELS.keys())
+
 DEFAULT_ADSTOCK_DECAYS: Dict[str, float] = {
     "google_ads": 0.35,
     "meta_ads": 0.40,
@@ -69,6 +80,23 @@ _COLUMN_ALIASES = {
     "promo": "promotions",
     "discounts": "promotions",
     "discount_spend": "promotions",
+    "holiday": "holiday_flag",
+    "holiday_flag": "holiday_flag",
+    "is_holiday": "holiday_flag",
+    "stockout": "stockout_flag",
+    "stockout_flag": "stockout_flag",
+    "out_of_stock": "stockout_flag",
+    "promo_event": "promo_event",
+    "promotion_event": "promo_event",
+    "competitor_campaign": "competitor_campaign",
+    "competitor_activity": "competitor_campaign",
+    "competitor_spend": "competitor_campaign",
+    "product_launch": "product_launch",
+    "launch": "product_launch",
+    "new_product_launch": "product_launch",
+    "macro_index": "macro_index",
+    "economic_index": "macro_index",
+    "consumer_index": "macro_index",
 }
 
 
@@ -111,10 +139,11 @@ FIELD_LABELS: Dict[str, str] = {
     TARGET_COL: "Revenue",
     CUSTOMER_COL: "New Customers",
     **CHANNEL_LABELS,
+    **CONTROL_VARIABLE_LABELS,
 }
 
 REQUIRED_MODEL_COLUMNS = (DATE_COL, TARGET_COL, *DEFAULT_CHANNELS)
-OPTIONAL_MODEL_COLUMNS = (CUSTOMER_COL,)
+OPTIONAL_MODEL_COLUMNS = (CUSTOMER_COL, *DEFAULT_CONTROL_COLUMNS)
 
 
 def normalize_marketing_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -230,6 +259,21 @@ def assess_data_readiness(
     else:
         add_check("CAC support", "Watch", "Customer/conversion counts are optional but improve CAC reporting.", 5)
 
+    controls = available_control_columns(frame)
+    if controls:
+        add_check(
+            "External controls",
+            "Ready",
+            "Detected control variables: " + ", ".join(CONTROL_VARIABLE_LABELS.get(column, column) for column in controls) + ".",
+        )
+    else:
+        add_check(
+            "External controls",
+            "Watch",
+            "Optional controls such as holidays, stockouts, product launches, competitor campaigns, and macro indicators can improve model reliability.",
+            3,
+        )
+
     mapped_channels = [channel for channel in channel_cols if channel in frame.columns]
     if mapped_channels:
         spend = frame[mapped_channels].apply(pd.to_numeric, errors="coerce").fillna(0)
@@ -264,6 +308,12 @@ def prepare_marketing_data(
     return _coerce_model_input(data, channel_cols, require_revenue=require_revenue)
 
 
+def available_control_columns(data: pd.DataFrame) -> tuple[str, ...]:
+    """Return optional external control variables available in a normalized dataset."""
+    frame = normalize_marketing_data(data)
+    return tuple(column for column in DEFAULT_CONTROL_COLUMNS if column in frame.columns)
+
+
 def generate_sample_marketing_data(weeks: int = 156, seed: int = 42) -> pd.DataFrame:
     """Create a realistic demo dataset with seasonality and saturated channel effects."""
     rng = np.random.default_rng(seed)
@@ -271,6 +321,11 @@ def generate_sample_marketing_data(weeks: int = 156, seed: int = 42) -> pd.DataF
     t = np.arange(weeks)
 
     holiday = np.where(pd.Series(dates).dt.month.isin([11, 12]), 1.0, 0.0)
+    promo_event = np.where(((t % 17) < 3) | (holiday > 0), 1.0, 0.0)
+    competitor_campaign = np.where((t % 29) < 4, 1.0, 0.0)
+    product_launch = np.where((t >= 62) & (t <= 70), 1.0, 0.0)
+    stockout_flag = np.where((t % 41) == 0, 1.0, 0.0)
+    macro_index = 100 + 4 * np.sin(2 * np.pi * (t + 3) / 52) + np.linspace(-1, 3, weeks)
     seasonal = np.sin(2 * np.pi * t / 52)
     semiannual = np.cos(2 * np.pi * t / 26)
     trend = np.linspace(0, 1, weeks)
@@ -302,6 +357,11 @@ def generate_sample_marketing_data(weeks: int = 156, seed: int = 42) -> pd.DataF
         + _saturated_effect(channel_values["tv_ads"], scale=52_000, ceiling=86_000)
         + _saturated_effect(channel_values["email_marketing"], scale=7_500, ceiling=34_000)
         + _saturated_effect(channel_values["promotions"], scale=15_000, ceiling=58_000)
+        + 18_000 * promo_event
+        + 36_000 * product_launch
+        - 28_000 * stockout_flag
+        - 10_000 * competitor_campaign
+        + 900 * (macro_index - 100)
         + rng.normal(0, 9_000, weeks)
     )
 
@@ -319,6 +379,12 @@ def generate_sample_marketing_data(weeks: int = 156, seed: int = 42) -> pd.DataF
         {
             DATE_COL: dates,
             **channel_values,
+            "holiday_flag": holiday,
+            "stockout_flag": stockout_flag,
+            "promo_event": promo_event,
+            "competitor_campaign": competitor_campaign,
+            "product_launch": product_launch,
+            "macro_index": macro_index,
             TARGET_COL: revenue,
             CUSTOMER_COL: new_customers.round(0),
         }
@@ -652,6 +718,10 @@ def build_feature_frame(
         adstocked = apply_adstock(spend.to_numpy(dtype=float), decay=decay)
         features[f"adstock_{channel}"] = np.log1p(adstocked)
 
+    for control in available_control_columns(frame):
+        values = pd.to_numeric(frame[control], errors="coerce").fillna(0)
+        features[f"control_{control}"] = values.astype(float)
+
     return features.astype(float)
 
 
@@ -697,6 +767,8 @@ def get_baseline_scenario(data: pd.DataFrame, recent_weeks: int = 4) -> Dict[str
     }
     for channel in DEFAULT_CHANNELS:
         scenario[channel] = float(pd.to_numeric(frame[channel], errors="coerce").fillna(0).mean())
+    for control in available_control_columns(frame):
+        scenario[control] = float(pd.to_numeric(frame[control], errors="coerce").fillna(0).mean())
     return scenario
 
 
@@ -1159,6 +1231,12 @@ def _column_match_score(canonical: str, normalized: str) -> int:
         "tv_ads": {"tv", "television", "linear_tv"},
         "email_marketing": {"email", "newsletter", "crm"},
         "promotions": {"promo", "promotion", "promotions", "discount", "discounts"},
+        "holiday_flag": {"holiday", "holidays", "holiday_flag", "is_holiday"},
+        "stockout_flag": {"stockout", "stockouts", "out_of_stock", "stockout_flag"},
+        "promo_event": {"promo_event", "promotion_event", "event"},
+        "competitor_campaign": {"competitor", "competitor_campaign", "competitor_activity"},
+        "product_launch": {"product_launch", "launch", "new_product"},
+        "macro_index": {"macro", "macro_index", "economic_index", "consumer_index"},
     }
     spend_terms = {"spend", "cost", "budget", "investment"}
     tokens = set(normalized.split("_"))
@@ -1187,7 +1265,7 @@ def _build_calendar_feature_frame(data: pd.DataFrame, train_df: pd.DataFrame) ->
     span = max(int((train_dates.max() - origin).days), 1)
     week = dates.dt.isocalendar().week.astype("int64").astype(float)
     days_since_origin = (dates - origin).dt.days.astype(float)
-    return pd.DataFrame(
+    features = pd.DataFrame(
         {
             "trend": days_since_origin / span,
             "season_sin": np.sin(2 * np.pi * week / 52),
@@ -1196,6 +1274,9 @@ def _build_calendar_feature_frame(data: pd.DataFrame, train_df: pd.DataFrame) ->
         },
         index=data.index,
     )
+    for control in available_control_columns(data):
+        features[f"control_{control}"] = pd.to_numeric(data[control], errors="coerce").fillna(0).astype(float)
+    return features
 
 
 def _fit_predict_feature_model(

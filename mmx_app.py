@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 
 from marketing_mix_model import (
     CHANNEL_LABELS,
+    CONTROL_VARIABLE_LABELS,
     CUSTOMER_COL,
     DATE_COL,
+    DEFAULT_CONTROL_COLUMNS,
     DEFAULT_CHANNELS,
     TARGET_COL,
     build_response_curve,
@@ -38,6 +40,7 @@ try:
         REQUIRED_MODEL_COLUMNS,
         apply_column_mapping,
         assess_data_readiness,
+        available_control_columns,
         build_business_kpi_scorecard,
         build_genai_evidence_packet,
         compare_candidate_models,
@@ -54,9 +57,19 @@ except ImportError:
         "email_marketing": 0.20,
         "promotions": 0.25,
     }
+    CONTROL_VARIABLE_LABELS = {
+        "holiday_flag": "Holiday Flag",
+        "stockout_flag": "Stockout Flag",
+        "promo_event": "Promotion Event",
+        "competitor_campaign": "Competitor Campaign",
+        "product_launch": "Product Launch",
+        "macro_index": "Macro Index",
+    }
+    DEFAULT_CONTROL_COLUMNS = tuple(CONTROL_VARIABLE_LABELS.keys())
     FIELD_LABELS = {DATE_COL: "Date", TARGET_COL: "Revenue", CUSTOMER_COL: "New Customers", **CHANNEL_LABELS}
     REQUIRED_MODEL_COLUMNS = (DATE_COL, TARGET_COL, *DEFAULT_CHANNELS)
-    OPTIONAL_MODEL_COLUMNS = (CUSTOMER_COL,)
+    FIELD_LABELS.update(CONTROL_VARIABLE_LABELS)
+    OPTIONAL_MODEL_COLUMNS = (CUSTOMER_COL, *DEFAULT_CONTROL_COLUMNS)
 
     def suggest_column_mapping(data: pd.DataFrame) -> dict[str, str]:
         return {column: column if column in data.columns else "" for column in (*REQUIRED_MODEL_COLUMNS, *OPTIONAL_MODEL_COLUMNS)}
@@ -89,6 +102,10 @@ except ImportError:
         prediction = model.predict(data)
         error = float(model.metrics.get("rmse", 1.0))
         return pd.DataFrame({"Prediction": prediction, "Lower": prediction - error, "Upper": prediction + error})
+
+    def available_control_columns(data: pd.DataFrame) -> tuple[str, ...]:
+        frame = normalize_marketing_data(data)
+        return tuple(column for column in DEFAULT_CONTROL_COLUMNS if column in frame.columns)
 
     def build_business_kpi_scorecard(
         data: pd.DataFrame,
@@ -184,9 +201,9 @@ st.markdown(
       }
       .brand-title {
         color: #f8fafc;
-        font-size: 3rem;
+        font-size: 2.65rem;
         font-weight: 850;
-        line-height: 1;
+        line-height: 1.06;
         margin: 0 0 0.35rem;
       }
       .brand-subtitle {
@@ -264,6 +281,49 @@ st.markdown(
         margin-bottom: 0.65rem;
         border-radius: 6px;
         color: #e5eefb;
+      }
+      .summary-box {
+        border: 1px solid rgba(56, 215, 193, 0.34);
+        background: linear-gradient(135deg, rgba(20, 184, 166, 0.14), rgba(15, 23, 42, 0.78));
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        margin: 0.75rem 0 1rem;
+      }
+      .summary-box h4 {
+        color: #f8fafc;
+        margin: 0 0 0.45rem;
+      }
+      .summary-box p {
+        color: rgba(226, 232, 240, 0.82);
+        margin: 0.18rem 0;
+      }
+      .badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.28rem 0.65rem;
+        font-size: 0.82rem;
+        font-weight: 750;
+        margin-bottom: 0.4rem;
+      }
+      .badge-success {
+        background: rgba(36, 198, 161, 0.16);
+        color: #5eead4;
+        border: 1px solid rgba(45, 212, 191, 0.4);
+      }
+      .badge-warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.4);
+      }
+      .badge-danger {
+        background: rgba(251, 113, 133, 0.15);
+        color: #fb7185;
+        border: 1px solid rgba(251, 113, 133, 0.4);
+      }
+      .badge-info {
+        background: rgba(148, 163, 184, 0.14);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.34);
       }
       .hero {
         border: 1px solid rgba(148, 163, 184, 0.18);
@@ -407,6 +467,209 @@ def display_business_scorecard(scorecard: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def model_trust_assessment(evaluation: Mapping[str, object] | None, max_mape_pct: float) -> dict[str, object]:
+    if not evaluation:
+        return {
+            "label": "Insufficient data",
+            "status": "info",
+            "mmm_beats_baseline": False,
+            "mape": None,
+            "baseline_mape": None,
+            "explanation": "There is not enough holdout data to compare MMM against a baseline.",
+            "next_step": "Improve data coverage before relying on optimization.",
+        }
+
+    model_mape = float(evaluation["model_metrics"]["mape"])
+    baseline_mape = float(evaluation["baseline_metrics"]["mape"])
+    mmm_beats_baseline = model_mape < baseline_mape
+
+    if mmm_beats_baseline and model_mape <= float(max_mape_pct):
+        label = "Trust for planning"
+        status = "success"
+        next_step = "Pilot the recommendation and monitor weekly."
+    elif mmm_beats_baseline:
+        label = "Use with caution"
+        status = "warning"
+        next_step = "Use a limited pilot and improve data quality before larger budget changes."
+    else:
+        label = "Do not use recommendation yet"
+        status = "danger"
+        next_step = "Improve the model or dataset before acting on optimization."
+
+    explanation = (
+        f"MMM MAPE is {model_mape:.1f}% vs baseline MAPE of {baseline_mape:.1f}%. "
+        f"Your planning target is {float(max_mape_pct):.1f}%."
+    )
+    return {
+        "label": label,
+        "status": status,
+        "mmm_beats_baseline": mmm_beats_baseline,
+        "mape": model_mape,
+        "baseline_mape": baseline_mape,
+        "explanation": explanation,
+        "next_step": next_step,
+    }
+
+
+def render_badge(label: str, status: str = "info") -> None:
+    st.markdown(
+        f"<span class='badge badge-{escape(status)}'>{escape(label)}</span>",
+        unsafe_allow_html=True,
+    )
+
+
+def scorecard_metric(scorecard: pd.DataFrame, metric: str, column: str) -> float | None:
+    if scorecard.empty or metric not in set(scorecard["Business KPI"]):
+        return None
+    value = scorecard.loc[scorecard["Business KPI"] == metric, column].iloc[0]
+    return None if pd.isna(value) else float(value)
+
+
+def allocation_shift_summary(optimization: Mapping[str, object]) -> dict[str, object]:
+    allocation = optimization.get("allocation")
+    if not isinstance(allocation, pd.DataFrame) or allocation.empty:
+        return {"increase": "higher-response channels", "decrease": "lower-ROI channels", "increase_rows": pd.DataFrame(), "decrease_rows": pd.DataFrame()}
+    increase_rows = allocation[allocation["Spend Shift"] > 0].sort_values("Spend Shift", ascending=False)
+    decrease_rows = allocation[allocation["Spend Shift"] < 0].sort_values("Spend Shift", ascending=True)
+    return {
+        "increase": ", ".join(increase_rows["Channel"].head(2).astype(str)) or "higher-response channels",
+        "decrease": ", ".join(decrease_rows["Channel"].head(2).astype(str)) or "lower-ROI channels",
+        "increase_rows": increase_rows,
+        "decrease_rows": decrease_rows,
+    }
+
+
+def executive_recommendation_summary(
+    optimization: Mapping[str, object],
+    scorecard: pd.DataFrame,
+    evaluation: Mapping[str, object] | None,
+    max_mape_pct: float,
+) -> dict[str, str]:
+    trust = model_trust_assessment(evaluation, max_mape_pct)
+    shifts = allocation_shift_summary(optimization)
+    roi_lift = scorecard_metric(scorecard, "Marketing ROI lift", "Delta %")
+    cac_lift = scorecard_metric(scorecard, "CAC reduction", "Delta %")
+    confidence = (
+        "Conservative case remains positive."
+        if float(optimization.get("revenue_delta_low", 0.0) or 0.0) > 0
+        else "Conservative case is not yet positive."
+    )
+    if cac_lift is None:
+        cac_phrase = "CAC unavailable without customer/conversion data"
+    elif cac_lift >= 0:
+        cac_phrase = f"{cac_lift:+.1f}% CAC reduction"
+    else:
+        cac_phrase = f"{abs(cac_lift):.1f}% CAC increase risk"
+    return {
+        "recommendation": (
+            f"Reallocate part of next period's budget from {shifts['decrease']} into {shifts['increase']}."
+        ),
+        "impact": (
+            f"Expected impact: {float(optimization.get('revenue_delta_pct', 0.0) or 0.0):+.1f}% revenue lift, "
+            f"{roi_lift:+.1f}% ROI lift, {cac_phrase}."
+            if roi_lift is not None
+            else f"Expected impact: {float(optimization.get('revenue_delta_pct', 0.0) or 0.0):+.1f}% revenue lift."
+        ),
+        "confidence": (
+            f"{confidence} Range: {signed_money(float(optimization.get('revenue_delta_low', 0.0) or 0.0))} "
+            f"to {signed_money(float(optimization.get('revenue_delta_high', 0.0) or 0.0))}."
+        ),
+        "risk": f"Model trust: {trust['label']}. {trust['explanation']}",
+        "next_step": trust["next_step"],
+    }
+
+
+def render_executive_summary(summary: Mapping[str, str]) -> None:
+    st.markdown(
+        f"""
+        <div class="summary-box">
+          <h4>Executive recommendation summary</h4>
+          <p><strong>Recommendation:</strong> {escape(summary['recommendation'])}</p>
+          <p><strong>Expected impact:</strong> {escape(summary['impact'])}</p>
+          <p><strong>Confidence:</strong> {escape(summary['confidence'])}</p>
+          <p><strong>Risk:</strong> {escape(summary['risk'])}</p>
+          <p><strong>Recommended next step:</strong> {escape(summary['next_step'])}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def detected_control_summary(data: pd.DataFrame) -> pd.DataFrame:
+    controls = available_control_columns(data)
+    if not controls:
+        return pd.DataFrame(
+            [
+                {
+                    "Control Variable": "Optional controls not detected",
+                    "Status": "Missing",
+                    "Why It Matters": "Holidays, stockouts, product launches, competitor campaigns, and macro indicators can improve model reliability.",
+                }
+            ]
+        )
+    return pd.DataFrame(
+        [
+            {
+                "Control Variable": CONTROL_VARIABLE_LABELS.get(column, column),
+                "Status": "Included in model",
+                "Why It Matters": "Helps prevent marketing channels from receiving credit or blame for external business events.",
+            }
+            for column in controls
+        ]
+    )
+
+
+def build_pilot_plan(
+    optimization: Mapping[str, object],
+    scorecard: pd.DataFrame,
+    evaluation: Mapping[str, object] | None,
+    max_mape_pct: float,
+    duration_weeks: int = 4,
+) -> pd.DataFrame:
+    shifts = allocation_shift_summary(optimization)
+    trust = model_trust_assessment(evaluation, max_mape_pct)
+    cac_delta = scorecard_metric(scorecard, "CAC reduction", "Delta %")
+    if cac_delta is None:
+        cac_guardrail = "if CAC rises beyond target"
+    elif cac_delta >= 0:
+        cac_guardrail = f"if CAC reduction falls below target ({cac_delta:.1f}% current estimate)"
+    else:
+        cac_guardrail = f"if CAC increases beyond target ({abs(cac_delta):.1f}% current estimate)"
+    return pd.DataFrame(
+        [
+            {
+                "Plan Area": "Recommended budget shift",
+                "Action": f"Move spend from {shifts['decrease']} into {shifts['increase']}.",
+            },
+            {"Plan Area": "Pilot duration", "Action": f"Run a monitored {duration_weeks}-week pilot before permanent rollout."},
+            {
+                "Plan Area": "Channels to increase",
+                "Action": shifts["increase"],
+            },
+            {
+                "Plan Area": "Channels to decrease",
+                "Action": shifts["decrease"],
+            },
+            {
+                "Plan Area": "KPIs to monitor",
+                "Action": "Revenue, marketing ROI, CAC, MAPE, and conversion volume.",
+            },
+            {"Plan Area": "Monitoring cadence", "Action": "Review performance weekly with marketing and finance."},
+            {
+                "Plan Area": "Stop-loss rule",
+                "Action": (
+                    "Pause or revise if conservative lift is negative for 2 consecutive weeks, "
+                    f"{cac_guardrail}, or if model error exceeds {float(max_mape_pct):.1f}% MAPE."
+                ),
+            },
+            {
+                "Plan Area": "Human review checkpoint",
+                "Action": f"Before permanent rollout, confirm business context and model trust status: {trust['label']}.",
+            },
+        ]
+    )
 
 
 def render_metric_card(label: object, value: object, delta: object | None = None) -> None:
@@ -565,6 +828,12 @@ def build_csv_template() -> bytes:
                 "tv_ads": 18000,
                 "email_marketing": 2500,
                 "promotions": 4500,
+                "holiday_flag": 0,
+                "stockout_flag": 0,
+                "promo_event": 1,
+                "competitor_campaign": 0,
+                "product_launch": 0,
+                "macro_index": 101.2,
                 TARGET_COL: 260000,
                 CUSTOMER_COL: 720,
             }
@@ -632,64 +901,93 @@ def build_responsible_ai_audit(
     data: pd.DataFrame,
     evaluation: Mapping[str, object] | None,
     contribution: pd.DataFrame,
+    max_mape_pct: float = 15.0,
 ) -> pd.DataFrame:
     weeks = len(data)
-    spend = data[list(DEFAULT_CHANNELS)].sum()
-    total_spend = float(spend.sum())
-    top_channel_share = float(spend.max() / total_spend) if total_spend else 0.0
-    has_customers = CUSTOMER_COL in data.columns and float(data[CUSTOMER_COL].sum()) > 0
-    mape = float(evaluation["model_metrics"]["mape"]) if evaluation else None
+    normalized_columns = {column_name.lower() for column_name in map(str, data.columns)}
+    privacy_terms = {"email", "phone", "name", "customer_id", "user_id"}
+    privacy_hits = sorted(
+        column for column in normalized_columns if any(term in column for term in privacy_terms)
+    )
+    segment_terms = {"region", "segment", "market", "geo", "product", "audience"}
+    segment_hits = sorted(
+        column for column in normalized_columns if any(term in column for term in segment_terms)
+    )
+    trust = model_trust_assessment(evaluation, max_mape_pct)
+    readiness_issues = []
+    if weeks < 52:
+        readiness_issues.append("short history")
+    if DATE_COL in data.columns:
+        dates = pd.to_datetime(data[DATE_COL], errors="coerce").sort_values()
+        if dates.isna().any():
+            readiness_issues.append("invalid dates")
+        elif len(dates) > 2 and dates.diff().dropna().dt.days.nunique() > 2:
+            readiness_issues.append("irregular dates")
+    numeric_columns = [column for column in DEFAULT_CHANNELS if column in data.columns]
+    for column in numeric_columns:
+        numeric = pd.to_numeric(data[column], errors="coerce")
+        if numeric.isna().any():
+            readiness_issues.append(f"non-numeric {column}")
+            break
 
-    rows = [
+    return pd.DataFrame(
+        [
         {
-            "Area": "Data representativeness",
-            "Status": "Watch" if weeks < 104 else "Managed",
-            "Risk": "Short history can overstate recent campaigns or miss yearly seasonality.",
-            "Mitigation": "Use at least two years of weekly data where possible and refresh the model monthly.",
+            "Risk Area": "Privacy",
+            "Example in Mixalyzer": (
+                "Uploaded data may contain customer identifiers: " + ", ".join(privacy_hits)
+                if privacy_hits
+                else "Uploaded data appears aggregated with no obvious customer identifiers."
+            ),
+            "Potential Impact": "Sensitive identifiers could be exposed in analysis files or exports.",
+            "Mitigation / Guardrail": "Use weekly aggregated data only; remove email, phone, name, customer_id, and user_id columns before sharing.",
+            "Status": "Needs review" if privacy_hits else "Passed",
         },
         {
-            "Area": "Channel concentration",
-            "Status": "Watch" if top_channel_share > 0.45 else "Managed",
-            "Risk": f"The largest channel is {top_channel_share:.0%} of tracked spend.",
-            "Mitigation": "Set optimizer bounds and review recommendations before making large reallocations.",
+            "Risk Area": "Bias / fairness",
+            "Example in Mixalyzer": (
+                "Segment fields detected: " + ", ".join(segment_hits)
+                if segment_hits
+                else "No region, product, audience, or customer segment fields detected."
+            ),
+            "Potential Impact": "The model may overrepresent channels that served only one region, product, or customer segment.",
+            "Mitigation / Guardrail": "Review results by segment when segment fields exist; avoid making broad cuts from one aggregate model alone.",
+            "Status": "Warning" if segment_hits else "Warning",
         },
         {
-            "Area": "Customer privacy",
-            "Status": "Managed" if has_customers else "Watch",
-            "Risk": "Customer-level data may contain sensitive identifiers if raw CRM exports are uploaded.",
-            "Mitigation": "Use aggregated weekly channel data only; avoid names, emails, device IDs, or protected attributes.",
+            "Risk Area": "Reliability",
+            "Example in Mixalyzer": trust["explanation"],
+            "Potential Impact": "Weak model accuracy can lead to wrong budget reallocations.",
+            "Mitigation / Guardrail": "Compare MMM against baselines, use the model trust badge, and avoid optimization if baseline performs better.",
+            "Status": "Passed" if trust["status"] == "success" else "Needs review" if trust["status"] == "danger" else "Warning",
         },
         {
-            "Area": "Model reliability",
-            "Status": "Watch" if mape is not None and mape > 10 else "Managed",
-            "Risk": "Forecast error can lead to overconfident budget changes.",
-            "Mitigation": "Compare against the baseline, monitor MAPE, and show best/base/worst ranges before launch.",
+            "Risk Area": "Hallucination",
+            "Example in Mixalyzer": "AI-generated recommendations may invent unsupported channel claims.",
+            "Potential Impact": "Stakeholders could act on a persuasive but unsupported narrative.",
+            "Mitigation / Guardrail": "Generate recommendations only from the evidence workbook and model outputs; fall back to deterministic recommendations.",
+            "Status": "Passed",
         },
         {
-            "Area": "Recommendation hallucination",
-            "Status": "Managed",
-            "Risk": "Generated recommendations may sound confident even when evidence is weak.",
-            "Mitigation": "Ground the AI narrative in model outputs and fall back to deterministic recommendations.",
+            "Risk Area": "Over-automation",
+            "Example in Mixalyzer": "User applies budget changes without business review.",
+            "Potential Impact": "Budget shifts could harm revenue, CAC, or strategic brand goals.",
+            "Mitigation / Guardrail": "Show decision-support warning, recommend a pilot rollout, and require a human checkpoint before permanent rollout.",
+            "Status": "Warning",
         },
         {
-            "Area": "Fairness and proxy bias",
-            "Status": "Watch",
-            "Risk": "Geo, audience, or platform targeting can proxy for sensitive groups even without explicit demographics.",
-            "Mitigation": "Audit campaign segments outside this prototype before activating recommendations in production.",
+            "Risk Area": "Data quality",
+            "Example in Mixalyzer": (
+                "Readiness risks detected: " + ", ".join(readiness_issues)
+                if readiness_issues
+                else "Required columns are present and no obvious date/numeric issues were detected."
+            ),
+            "Potential Impact": "Missing weeks, irregular dates, short history, or non-numeric spend can distort ROI and contribution.",
+            "Mitigation / Guardrail": "Use readiness checks before model training and improve the dataset when warnings appear.",
+            "Status": "Warning" if readiness_issues else "Passed",
         },
-    ]
-
-    if not contribution.empty and float(contribution["ROI"].max()) > 3 * max(float(contribution["ROI"].median()), 0.01):
-        rows.append(
-            {
-                "Area": "Outlier ROI",
-                "Status": "Watch",
-                "Risk": "One channel appears much stronger than the rest, which can signal sparse data or attribution bias.",
-                "Mitigation": "Validate with holdout tests or incrementality experiments before major spend shifts.",
-            }
-        )
-
-    return pd.DataFrame(rows)
+        ]
+    )
 
 
 def build_executive_report(
@@ -872,6 +1170,8 @@ def build_allocation_workbook(
     optimization: Mapping[str, object],
     scorecard: pd.DataFrame,
     recommendations: list[str],
+    pilot_plan: pd.DataFrame | None = None,
+    risk_audit: pd.DataFrame | None = None,
 ) -> bytes:
     summary = pd.DataFrame(
         [
@@ -891,6 +1191,10 @@ def build_allocation_workbook(
         _write_excel_frame(writer, display_business_scorecard(scorecard), "KPI Scorecard")
         _write_excel_frame(writer, optimization["allocation"], "Recommended Allocation")
         _write_excel_frame(writer, recommendations_df, "Recommendations")
+        if pilot_plan is not None:
+            _write_excel_frame(writer, pilot_plan, "Pilot Plan")
+        if risk_audit is not None:
+            _write_excel_frame(writer, risk_audit, "Responsible AI Audit")
         _style_workbook(writer.book)
     return buffer.getvalue()
 
@@ -903,6 +1207,7 @@ def build_executive_report_pdf(
     evaluation: Mapping[str, object] | None,
     recommendations: list[str],
     scorecard: pd.DataFrame,
+    max_mape_pct: float = 15.0,
 ) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
@@ -979,11 +1284,35 @@ def build_executive_report_pdf(
     allocation = optimization["allocation"][
         ["Channel", "Current Spend", "Recommended Spend", "Spend Shift", "Change %"]
     ].copy()
+    trust = model_trust_assessment(evaluation, max_mape_pct)
+    summary = executive_recommendation_summary(optimization, scorecard, evaluation, max_mape_pct)
+    risk_audit = build_responsible_ai_audit(data, evaluation, contribution, max_mape_pct)
+    pilot_plan = build_pilot_plan(optimization, scorecard, evaluation, max_mape_pct)
 
     story = [
         Paragraph("Mixalyzer Executive Report", title_style),
         Paragraph(f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}", body_style),
         Spacer(1, 8),
+        Paragraph("Business Context", section_style),
+        table(
+            [
+                ["Topic", "Detail"],
+                ["Business problem", "Growth teams waste marketing budget when they cannot identify which channels drive incremental revenue."],
+                ["Target customer", "Growth teams, marketing analysts, finance teams, CMOs, and D2C/e-commerce companies."],
+                ["Value proposition", "Upload weekly data, evaluate model quality, simulate budget changes, optimize allocation, and export recommendations."],
+            ],
+            [1.6 * inch, 4.8 * inch],
+        ),
+        Paragraph("Who / Why / How", section_style),
+        table(
+            [
+                ["Framework", "Mixalyzer answer"],
+                ["Who", "Marketing analysts, growth managers, finance teams, CMOs, and executive stakeholders."],
+                ["Why", "Last-click tools miss delayed effects, seasonality, offline channels, diminishing returns, and cross-channel impact."],
+                ["How", "MMM with adstock, saturation, seasonality, optional event controls, baseline comparison, simulation, optimization, and executive exports."],
+            ],
+            [1.2 * inch, 5.2 * inch],
+        ),
         Paragraph("Business KPI Snapshot", section_style),
         table(
             [
@@ -993,8 +1322,22 @@ def build_executive_report_pdf(
                 ["Marketing ROI", f"{total_revenue_value / total_spend_value:.2f}x" if total_spend_value else "N/A"],
                 ["CAC", money(cac_value) if cac_value else "N/A"],
                 ["Predicted optimized lift", f"{signed_money(optimization['revenue_delta'])} ({optimization['revenue_delta_pct']:.1f}%)"],
+                ["Confidence range", f"{signed_money(optimization['revenue_delta_low'])} to {signed_money(optimization['revenue_delta_high'])}"],
+                ["Model trust badge", trust["label"]],
             ],
             [2.3 * inch, 4.1 * inch],
+        ),
+        Paragraph("Executive Recommendation Summary", section_style),
+        table(
+            [
+                ["Field", "Summary"],
+                ["Recommendation", summary["recommendation"]],
+                ["Expected impact", summary["impact"]],
+                ["Confidence", summary["confidence"]],
+                ["Risk", summary["risk"]],
+                ["Next step", summary["next_step"]],
+            ],
+            [1.45 * inch, 4.95 * inch],
         ),
         Paragraph("Business Goal Attainment", section_style),
         table(
@@ -1052,10 +1395,30 @@ def build_executive_report_pdf(
         story.append(Paragraph(f"- {escape(recommendation)}", body_style))
 
     story.append(Paragraph("Responsible AI Notes", section_style))
+    story.append(
+        table(
+            [["Risk Area", "Example", "Impact", "Mitigation", "Status"]]
+            + risk_audit[
+                ["Risk Area", "Example in Mixalyzer", "Potential Impact", "Mitigation / Guardrail", "Status"]
+            ].values.tolist(),
+            [0.8 * inch, 1.45 * inch, 1.35 * inch, 1.95 * inch, 0.85 * inch],
+        )
+    )
+
+    story.append(Paragraph("Rollout / Pilot Plan", section_style))
+    story.append(
+        table(
+            [["Plan Area", "Action"]] + pilot_plan.values.tolist(),
+            [1.6 * inch, 4.8 * inch],
+        )
+    )
+
+    story.append(Paragraph("Caveats And Next Steps", section_style))
     for note in [
         "Treat recommendations as decision support, not automated media-buying instructions.",
         "Validate large reallocations with incrementality tests or controlled experiments.",
         "Use aggregated spend, revenue, and customer data; avoid customer-level identifiers.",
+        "Refresh the model as new weekly data arrives and compare results with actual lift.",
     ]:
         story.append(Paragraph(f"- {note}", body_style))
 
@@ -1334,13 +1697,21 @@ evidence_packet = build_genai_evidence_packet(
     evaluation_results,
     target_summary,
 )
+trust_assessment = model_trust_assessment(evaluation_results, max_mape_pct)
+default_summary = executive_recommendation_summary(
+    default_optimization,
+    business_scorecard,
+    evaluation_results,
+    max_mape_pct,
+)
 
 st.markdown(
     """
     <div class="brand-kicker">Mixalyzer</div>
-    <div class="brand-title">Marketing Mix Intelligence</div>
+    <div class="brand-title">AI-powered marketing mix optimization for growth teams</div>
     <div class="brand-subtitle">
-      Forecast revenue, compare MMM engines, audit data readiness, and turn budget shifts into executive-ready recommendations.
+      Upload weekly marketing data, evaluate model quality, simulate budget changes, optimize allocation,
+      and export stakeholder-ready recommendations tied to ROI, CAC, revenue lift, MAPE, and confidence ranges.
     </div>
     """,
     unsafe_allow_html=True,
@@ -1360,7 +1731,8 @@ for col, (label, value) in zip(kpi_cols, top_metrics):
         render_metric_card(label, value)
 
 (
-    product_tab,
+    home_tab,
+    strategy_tab,
     business_goals_tab,
     data_setup_tab,
     dashboard_tab,
@@ -1368,10 +1740,12 @@ for col, (label, value) in zip(kpi_cols, top_metrics):
     optimization_tab,
     evaluation_tab,
     responsible_ai_tab,
+    pilot_plan_tab,
     model_tab,
 ) = st.tabs(
     [
-        "Product",
+        "Home",
+        "Strategy",
         "Business Goals",
         "Data Setup",
         "Dashboard",
@@ -1379,76 +1753,146 @@ for col, (label, value) in zip(kpi_cols, top_metrics):
         "Optimization",
         "Evaluation",
         "Responsible AI",
+        "Pilot Plan",
         "Model",
     ]
 )
 
-with product_tab:
+with home_tab:
     st.markdown(
         """
         <div class="hero">
-          <h2>Allocate marketing budget with evidence, not guesswork.</h2>
+          <h2>Mixalyzer</h2>
           <p>
-            Mixalyzer helps growth teams identify which channels drive revenue, simulate budget shifts,
-            quantify confidence ranges, and reduce CAC while protecting marketing ROI.
+            AI-powered marketing mix optimization for growth teams.
           </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    who, why, how = st.columns(3)
-    with who:
+    render_executive_summary(default_summary)
+
+    home_cols = st.columns(3)
+    with home_cols[0]:
         st.markdown(
             """
             <div class="feature-card">
-              <h4>Who</h4>
-              <p>Marketing managers, growth teams, and finance partners managing multi-channel budgets.</p>
+              <h4>Target customer</h4>
+              <p>Growth teams, marketing analysts, finance teams, CMOs, and D2C/e-commerce companies.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    with why:
+    with home_cols[1]:
         st.markdown(
             """
             <div class="feature-card">
-              <h4>Why</h4>
-              <p>Ad platforms report activity, but executives need revenue impact, ROI, and CAC tradeoffs.</p>
+              <h4>Business problem</h4>
+              <p>Teams waste budget when they cannot identify which channels drive incremental revenue.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    with how:
+    with home_cols[2]:
         st.markdown(
             """
             <div class="feature-card">
-              <h4>How</h4>
-              <p>MMM prediction, adstock carryover, simulation, optimization, and grounded AI recommendations.</p>
+              <h4>Value proposition</h4>
+              <p>Upload weekly data, evaluate model quality, simulate spend, optimize allocation, and export recommendations.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
     st.divider()
-    product_cols = st.columns(4)
+    product_cols = st.columns(5)
     product_metrics = [
-        ("Business objective", f"ROI +{target_roi_lift_pct:.1f}%"),
-        ("Operating KPI", f"CAC -{target_cac_reduction_pct:.1f}%"),
-        ("Planning output", "Budget mix"),
-        ("AI approach", "Prediction + GenAI"),
+        ("ROI lift", f"{target_roi_lift_pct:.1f}% target"),
+        ("CAC reduction", f"{target_cac_reduction_pct:.1f}% target"),
+        ("Revenue lift", pct(default_optimization["revenue_delta_pct"])),
+        ("Forecast error", f"MAPE <= {pct(max_mape_pct)}"),
+        ("Confidence range", f"{int(confidence_level * 100)}%"),
     ]
     for col, (label, value) in zip(product_cols, product_metrics):
         with col:
             render_metric_card(label, value)
 
+    cta_cols = st.columns(3)
+    with cta_cols[0]:
+        st.button("Review data readiness", use_container_width=True)
+    with cta_cols[1]:
+        st.button("Run budget optimization", use_container_width=True)
+    with cta_cols[2]:
+        st.button("Export executive outputs", use_container_width=True)
+
     feature_cols = st.columns(4)
     feature_copy = [
-        ("Dashboard", "Channel contribution, spend mix, and revenue trend analysis."),
-        ("Simulator", "Budget what-if scenarios with predicted revenue impact."),
-        ("Optimizer", "Recommended allocation under a selected spend constraint."),
-        ("Governance", "Risk controls for privacy, bias, hallucination, and model reliability."),
+        ("Data readiness", "Check whether the uploaded dataset is clean enough for MMX."),
+        ("Model trust", "Compare MMM against baselines before relying on recommendations."),
+        ("Optimization", "Turn model outputs into a next-period budget plan."),
+        ("Executive outputs", "Download a PDF report, allocation workbook, and evidence workbook."),
     ]
     for col, (title, body) in zip(feature_cols, feature_copy):
+        with col:
+            st.markdown(
+                f"""
+                <div class="feature-card">
+                  <h4>{title}</h4>
+                  <p>{body}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+with strategy_tab:
+    st.subheader("Business case and strategy")
+    who_col, why_col, how_col = st.columns(3)
+    with who_col:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>Who</h4>
+              <p><strong>Primary users:</strong> marketing analysts, growth managers, finance teams, and CMOs.</p>
+              <p><strong>Target companies:</strong> small-to-mid-size e-commerce, D2C, subscription, and retail businesses.</p>
+              <p><strong>Stakeholders:</strong> marketing, finance, sales, and executive leadership.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with why_col:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>Why</h4>
+              <p>Last-click tools over-focus on immediate digital clicks and miss delayed effects, seasonality, offline channels, diminishing returns, and cross-channel impact.</p>
+              <p>Marketing leaders need budget recommendations tied to revenue, ROI, CAC, and risk.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with how_col:
+        st.markdown(
+            """
+            <div class="feature-card">
+              <h4>How</h4>
+              <p>Mixalyzer uses weekly spend, revenue, customers/conversions, adstock, saturation, seasonality, optional event controls, and baseline comparison.</p>
+              <p>It supports simulation, optimization, responsible AI checks, executive exports, and business recommendation generation.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.subheader("Competitive advantage")
+    advantage_cols = st.columns(5)
+    advantages = [
+        ("Better budget allocation", "Reallocate spend toward channels with stronger marginal response."),
+        ("Faster planning cycles", "Move from CSV upload to budget recommendation in one workflow."),
+        ("Transparent decisions", "Show model quality, confidence ranges, and risk caveats."),
+        ("Marketing-finance alignment", "Tie recommendations to ROI, CAC, revenue, and MAPE."),
+        ("Continuous monitoring", "Use weekly cadence instead of one-time analysis."),
+    ]
+    for col, (title, body) in zip(advantage_cols, advantages):
         with col:
             st.markdown(
                 f"""
@@ -1555,28 +1999,49 @@ with data_setup_tab:
     with map_right:
         st.dataframe(readiness["checks"], hide_index=True, use_container_width=True)
 
+    st.subheader("External event controls")
+    st.caption(
+        "Controls help prevent marketing channels from receiving credit or blame for events such as holidays, stockouts, launches, competitor campaigns, or macro conditions."
+    )
+    st.dataframe(detected_control_summary(data), hide_index=True, use_container_width=True)
+
     st.subheader("Cleaned data preview")
     st.dataframe(data.head(20), hide_index=True, use_container_width=True)
 
 with dashboard_tab:
+    st.subheader("What happened historically?")
+    st.caption("Use this view to compare revenue movement against total marketing spend over time.")
     left, right = st.columns([1.45, 1])
     with left:
         st.subheader("Spend and revenue trend")
         st.altair_chart(line_spend_revenue_chart(data), use_container_width=True)
+        st.caption("Business interpretation: look for periods where revenue moved with spend, and periods where external factors or diminishing returns may explain gaps.")
     with right:
         st.subheader("Channel contribution")
         st.altair_chart(contribution_chart(contribution_df), use_container_width=True)
+        st.caption("Business interpretation: larger slices indicate channels with higher estimated revenue contribution, not necessarily highest efficiency.")
 
+    st.subheader("Which channels appear most efficient?")
     chart_a, chart_b = st.columns([1, 1])
     with chart_a:
         st.subheader("ROI by channel")
         st.altair_chart(roi_chart(contribution_df), use_container_width=True)
+        top_roi_row = contribution_df.sort_values("ROI", ascending=False).iloc[0]
+        st.caption(
+            f"Business interpretation: {top_roi_row['Channel']} currently shows the highest estimated ROI, but trust depends on model quality and confidence range."
+        )
     with chart_b:
         st.subheader("Channel spend mix")
         st.altair_chart(channel_spend_chart(data), use_container_width=True)
+        st.caption("Business interpretation: compare spend share to contribution and ROI to identify potential over- or under-investment.")
+
+    st.subheader("How reliable is the model?")
+    render_badge(str(trust_assessment["label"]), str(trust_assessment["status"]))
+    st.caption(str(trust_assessment["explanation"]))
 
 with simulation_tab:
-    st.subheader("Budget simulation")
+    st.subheader("What happens if we change spend?")
+    st.caption("Adjust channel budgets to test a what-if scenario before changing the media plan.")
     sliders = {}
     slider_cols = st.columns(3)
     for idx, channel in enumerate(DEFAULT_CHANNELS):
@@ -1610,6 +2075,7 @@ with simulation_tab:
         ]
     )
     st.altair_chart(confidence_range_chart(confidence_summary), use_container_width=True)
+    st.caption("Business interpretation: the expected case is the model's central estimate; conservative and optimistic bars show uncertainty around the spend change.")
 
     sim_left, sim_right = st.columns([1.1, 1])
     with sim_left:
@@ -1625,8 +2091,11 @@ with simulation_tab:
         )
         curve = build_response_curve(model, baseline_scenario, selected_channel)
         st.altair_chart(response_curve_chart(curve), use_container_width=True)
+        st.caption("Business interpretation: flatter curves indicate diminishing returns, where extra spend produces smaller incremental revenue gains.")
 
 with optimization_tab:
+    st.subheader("What budget should we use next?")
+    st.caption("Use this page to convert the MMM outputs into an executive-ready budget recommendation.")
     target_budget = st.slider(
         "Next-period marketing budget",
         min_value=float(current_weekly_budget * 0.5),
@@ -1655,6 +2124,13 @@ with optimization_tab:
         evaluation_results,
         target_summary,
     )
+    optimization_summary = executive_recommendation_summary(
+        optimization,
+        optimization_scorecard,
+        evaluation_results,
+        max_mape_pct,
+    )
+    render_executive_summary(optimization_summary)
 
     opt_cols = st.columns(4)
     optimization_metrics = [
@@ -1726,6 +2202,7 @@ with optimization_tab:
                 evaluation=evaluation_results,
                 recommendations=deterministic_recommendations,
                 scorecard=optimization_scorecard,
+                max_mape_pct=max_mape_pct,
             ),
             file_name="marketing_mix_executive_report.pdf",
             mime="application/pdf",
@@ -1738,6 +2215,8 @@ with optimization_tab:
                 optimization,
                 optimization_scorecard,
                 deterministic_recommendations,
+                pilot_plan=build_pilot_plan(optimization, optimization_scorecard, evaluation_results, max_mape_pct),
+                risk_audit=build_responsible_ai_audit(data, evaluation_results, contribution_df, max_mape_pct),
             ),
             file_name="recommended_budget_allocation.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1755,6 +2234,10 @@ with optimization_tab:
 
 with evaluation_tab:
     st.subheader("Model comparison")
+    render_badge(str(trust_assessment["label"]), str(trust_assessment["status"]))
+    st.caption(
+        f"{trust_assessment['explanation']} This matters because budget recommendations should only drive business decisions when the MMM improves on a simple baseline."
+    )
     if not model_comparison_df.empty:
         best_model = model_comparison_df.iloc[0]
         cmp_cols = st.columns(4)
@@ -1826,35 +2309,75 @@ with evaluation_tab:
         st.info("Upload at least 12 dated observations to show train/test evaluation.")
 
 with responsible_ai_tab:
-    st.subheader("Responsible AI and risk audit")
-    risk_df = build_responsible_ai_audit(data, evaluation_results, contribution_df)
-    managed = int((risk_df["Status"] == "Managed").sum())
-    watch = int((risk_df["Status"] == "Watch").sum())
+    st.subheader("What are the risks?")
+    st.caption("This audit frames Mixalyzer as decision support: recommendations should be reviewed before budget changes are activated.")
+    risk_df = build_responsible_ai_audit(data, evaluation_results, contribution_df, max_mape_pct)
+    passed = int((risk_df["Status"] == "Passed").sum())
+    warnings = int((risk_df["Status"] == "Warning").sum())
+    needs_review = int((risk_df["Status"] == "Needs review").sum())
     risk_cols = st.columns(4)
     risk_metrics = [
-        ("Managed controls", managed),
-        ("Watch items", watch),
+        ("Passed", passed),
+        ("Warnings", warnings),
+        ("Needs review", needs_review),
         ("Privacy posture", "Aggregated"),
-        ("Recommendation mode", "Human review"),
     ]
     for col, (label, value) in zip(risk_cols, risk_metrics):
         with col:
             render_metric_card(label, value)
 
     for _, row in risk_df.iterrows():
-        css_class = "risk-ok" if row["Status"] == "Managed" else "risk-watch"
+        css_class = "risk-ok" if row["Status"] == "Passed" else "risk-watch"
         st.markdown(
             f"""
             <div class="feature-card {css_class}">
-              <h4>{row['Area']} · {row['Status']}</h4>
-              <p><strong>Risk:</strong> {row['Risk']}</p>
-              <p><strong>Mitigation:</strong> {row['Mitigation']}</p>
+              <h4>{row['Risk Area']} · {row['Status']}</h4>
+              <p><strong>Example:</strong> {row['Example in Mixalyzer']}</p>
+              <p><strong>Impact:</strong> {row['Potential Impact']}</p>
+              <p><strong>Mitigation:</strong> {row['Mitigation / Guardrail']}</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
     st.dataframe(risk_df, hide_index=True, use_container_width=True)
+
+with pilot_plan_tab:
+    st.subheader("Rollout / Pilot Plan")
+    st.caption("Use this plan to turn the model recommendation into a controlled business experiment.")
+    render_executive_summary(default_summary)
+
+    pilot_duration = st.slider("Pilot duration", min_value=2, max_value=12, value=4, step=1, format="%d weeks")
+    pilot_plan = build_pilot_plan(
+        default_optimization,
+        business_scorecard,
+        evaluation_results,
+        max_mape_pct,
+        duration_weeks=pilot_duration,
+    )
+    st.dataframe(pilot_plan, hide_index=True, use_container_width=True)
+
+    shifts = allocation_shift_summary(default_optimization)
+    pilot_cols = st.columns(3)
+    with pilot_cols[0]:
+        render_metric_card("Channels to increase", shifts["increase"])
+    with pilot_cols[1]:
+        render_metric_card("Channels to decrease", shifts["decrease"])
+    with pilot_cols[2]:
+        render_metric_card("Monitoring cadence", "Weekly")
+
+    st.markdown(
+        """
+        <div class="summary-box">
+          <h4>Stop-loss and review rules</h4>
+          <p>Pause or revise if conservative lift becomes negative for 2 consecutive weeks.</p>
+          <p>Pause if CAC increases beyond the selected target or conversion volume drops materially.</p>
+          <p>Pause if model error exceeds the acceptable MAPE threshold.</p>
+          <p>Require a human review checkpoint before permanent rollout.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with model_tab:
     model_left, model_right = st.columns([1, 1])
@@ -1878,6 +2401,8 @@ with model_tab:
             use_container_width=True,
             column_config={"Carryover Decay": st.column_config.NumberColumn(format="%.2f")},
         )
+        st.subheader("External controls included")
+        st.dataframe(detected_control_summary(data), hide_index=True, use_container_width=True)
     with model_right:
         st.subheader("Model diagnostics")
         diagnostics = pd.DataFrame(
