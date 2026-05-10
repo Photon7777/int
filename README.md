@@ -129,7 +129,7 @@ Streamlit Cloud settings:
 - Branch: `main`
 - Main file path: `mmx_app.py`
 
-Optional Streamlit secret for AI narrative generation:
+Optional Streamlit secret for enhanced AI narrative generation. If this is present, Mixalyzer automatically uses it to enrich the grounded stakeholder recommendation; if it is absent, the app still shows a deterministic evidence-based brief.
 
 ```toml
 OPENAI_API_KEY = "your_key_here"

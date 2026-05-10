@@ -215,19 +215,23 @@ st.markdown(
       .app-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 1rem;
-        align-items: center;
+        gap: 1.25rem;
+        align-items: start;
         margin-bottom: 1rem;
       }
       .brand-lockup {
         display: flex;
-        align-items: center;
-        gap: 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.85rem;
       }
       .brand-logo {
-        width: min(285px, 100%);
+        width: min(320px, 100%);
         height: auto;
         display: block;
+      }
+      .brand-copy {
+        max-width: 960px;
       }
       .brand-mark {
         width: 54px;
@@ -272,6 +276,7 @@ st.markdown(
         font-weight: 800;
         font-size: 0.86rem;
         white-space: nowrap;
+        margin-top: 0.45rem;
       }
       .metric-label {
         color: rgba(226, 232, 240, 0.72);
@@ -507,6 +512,7 @@ st.markdown(
         }
         .brand-pill {
           justify-self: start;
+          margin-top: 0;
         }
       }
     </style>
@@ -1794,6 +1800,7 @@ def grounded_ai_brief_html(payload: Mapping[str, object]) -> str:
     """
 
 
+@st.cache_data(show_spinner=False, ttl=900)
 def maybe_generate_openai_recommendations(
     payload: Mapping[str, object],
 ) -> str | None:
@@ -1864,7 +1871,8 @@ with st.sidebar:
         format_func=lambda value: f"{int(value * 100)}%",
     )
     regularization = st.slider("Model regularization", 0.1, 5.0, 1.5, 0.1)
-    use_openai = st.toggle("OpenAI recommendation narrative", value=False)
+    use_openai = bool(os.getenv("OPENAI_API_KEY"))
+    st.caption("AI recommendations are generated automatically from the MMM evidence workflow.")
     with st.expander("Business KPI targets", expanded=True):
         target_roi_lift_pct = st.slider("Target ROI lift", 0.0, 25.0, 5.0, 0.5, format="%.1f%%")
         target_cac_reduction_pct = st.slider("Target CAC reduction", 0.0, 25.0, 3.0, 0.5, format="%.1f%%")
@@ -1941,7 +1949,7 @@ st.markdown(
     <div class="app-header">
       <div class="brand-lockup">
         {logo_markup}
-        <div>
+        <div class="brand-copy">
           <div class="brand-kicker">Marketing intelligence platform</div>
           <div class="brand-title">AI-powered marketing mix optimization for growth teams</div>
           <div class="brand-subtitle">
@@ -2239,7 +2247,7 @@ with business_goals_tab:
         ),
         (
             "Generative layer",
-            "OpenAI recommendations are conditioned on the MMM evidence packet, not free-form guesses.",
+            "Grounded recommendation language is conditioned on the MMM evidence packet, not free-form guesses.",
         ),
         (
             "Business decision layer",
