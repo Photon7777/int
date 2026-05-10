@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from html import escape
+import base64
 import io
 import json
 import os
+from pathlib import Path
 from typing import Mapping
 
 import altair as alt
@@ -31,6 +33,19 @@ from marketing_mix_model import (
     prepare_marketing_data,
     simulate_spend_change,
 )
+
+APP_ROOT = Path(__file__).resolve().parent
+ASSET_DIR = APP_ROOT / "assets"
+
+
+def asset_data_uri(filename: str) -> str:
+    path = ASSET_DIR / filename
+    if not path.exists():
+        return ""
+    mime = "image/svg+xml" if path.suffix.lower() == ".svg" else "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
 
 try:
     from marketing_mix_model import (
@@ -184,12 +199,47 @@ st.markdown(
       #MainMenu, footer {visibility: hidden;}
       .stApp {
         background:
-          linear-gradient(180deg, #07100f 0%, #08131a 44%, #0d1117 100%);
+          radial-gradient(circle at 12% 0%, rgba(56, 215, 193, 0.11), transparent 34%),
+          radial-gradient(circle at 90% 6%, rgba(246, 200, 95, 0.08), transparent 30%),
+          linear-gradient(180deg, #07111a 0%, #0b1420 48%, #0d1117 100%);
+      }
+      section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0B1424 0%, #111827 100%);
+        border-right: 1px solid rgba(148, 163, 184, 0.16);
       }
       .block-container {
         max-width: 1420px;
         padding-top: 1.4rem;
         padding-bottom: 2.5rem;
+      }
+      .app-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      .brand-lockup {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .brand-logo {
+        width: min(285px, 100%);
+        height: auto;
+        display: block;
+      }
+      .brand-mark {
+        width: 54px;
+        height: 54px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #38D7C1, #7C8CFF 58%, #F6C85F);
+        display: grid;
+        place-items: center;
+        color: #07111A;
+        font-weight: 900;
+        font-size: 1.1rem;
+        box-shadow: 0 16px 42px rgba(15, 23, 42, 0.34);
       }
       .brand-kicker {
         color: #24c6a1;
@@ -208,10 +258,20 @@ st.markdown(
       }
       .brand-subtitle {
         color: rgba(226, 232, 240, 0.76);
-        max-width: 860px;
+        max-width: 960px;
         font-size: 1rem;
         line-height: 1.5;
-        margin-bottom: 1.2rem;
+        margin-bottom: 0.4rem;
+      }
+      .brand-pill {
+        border: 1px solid rgba(56, 215, 193, 0.32);
+        background: rgba(56, 215, 193, 0.08);
+        color: #A7F3D0;
+        border-radius: 999px;
+        padding: 0.42rem 0.78rem;
+        font-weight: 800;
+        font-size: 0.86rem;
+        white-space: nowrap;
       }
       .metric-label {
         color: rgba(226, 232, 240, 0.72);
@@ -282,6 +342,22 @@ st.markdown(
         border-radius: 6px;
         color: #e5eefb;
       }
+      .ai-brief {
+        border: 1px solid rgba(124, 140, 255, 0.28);
+        background: linear-gradient(135deg, rgba(124, 140, 255, 0.13), rgba(11, 18, 32, 0.8));
+        padding: 0.95rem 1rem;
+        margin-bottom: 0.8rem;
+        border-radius: 8px;
+        color: #e5eefb;
+      }
+      .ai-brief h4 {
+        color: #f8fafc;
+        margin: 0 0 0.4rem;
+      }
+      .ai-brief p {
+        color: rgba(226, 232, 240, 0.82);
+        margin: 0.28rem 0;
+      }
       .summary-box {
         border: 1px solid rgba(56, 215, 193, 0.34);
         background: linear-gradient(135deg, rgba(20, 184, 166, 0.14), rgba(15, 23, 42, 0.78));
@@ -328,26 +404,60 @@ st.markdown(
       .hero {
         border: 1px solid rgba(148, 163, 184, 0.18);
         background:
-          linear-gradient(135deg, rgba(36, 198, 161, 0.16), rgba(246, 200, 95, 0.07)),
+          linear-gradient(135deg, rgba(36, 198, 161, 0.14), rgba(124, 140, 255, 0.10), rgba(246, 200, 95, 0.06)),
           rgba(13, 21, 29, 0.82);
         border-radius: 8px;
-        padding: 1.35rem 1.45rem;
+        padding: 1.1rem;
         margin-bottom: 1rem;
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(300px, 1.05fr);
+        gap: 1.35rem;
+        align-items: center;
       }
       .hero h2 {
         color: #f8fafc;
-        font-size: 2rem;
+        font-size: 2.35rem;
         line-height: 1.12;
-        margin: 0 0 0.45rem;
+        margin: 0 0 0.6rem;
       }
       .hero p {
         color: rgba(226, 232, 240, 0.78);
         font-size: 1rem;
-        margin: 0;
+        margin: 0 0 0.8rem;
+        line-height: 1.55;
+      }
+      .hero-eyebrow {
+        color: #38D7C1;
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.45rem;
+      }
+      .hero-visual {
+        width: 100%;
+        border-radius: 8px;
+        display: block;
+        box-shadow: 0 28px 74px rgba(2, 6, 23, 0.28);
+      }
+      .identity-row {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+        margin-top: 0.8rem;
+      }
+      .identity-chip {
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(15, 23, 42, 0.55);
+        color: #dbeafe;
+        border-radius: 999px;
+        padding: 0.38rem 0.62rem;
+        font-size: 0.84rem;
+        font-weight: 700;
       }
       .feature-card {
         border: 1px solid rgba(148, 163, 184, 0.16);
-        background: rgba(13, 21, 29, 0.72);
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.76), rgba(13, 21, 29, 0.68));
         border-radius: 8px;
         padding: 0.9rem;
         min-height: 120px;
@@ -389,6 +499,15 @@ st.markdown(
         white-space: normal !important;
         overflow: visible !important;
         text-overflow: clip !important;
+      }
+      @media (max-width: 900px) {
+        .app-header,
+        .hero {
+          grid-template-columns: 1fr;
+        }
+        .brand-pill {
+          justify-self: start;
+        }
       }
     </style>
     """,
@@ -1568,11 +1687,115 @@ def response_curve_chart(curve: pd.DataFrame) -> alt.Chart:
     )
 
 
-def maybe_generate_openai_recommendations(
+def build_grounded_ai_payload(
     contribution: pd.DataFrame,
     optimization: Mapping[str, object],
     simulation: Mapping[str, object],
     evidence_packet: Mapping[str, object],
+    scorecard: pd.DataFrame,
+    trust: Mapping[str, object],
+    readiness: Mapping[str, object],
+    risk_audit: pd.DataFrame,
+    recommendation_summary: Mapping[str, str],
+) -> dict[str, object]:
+    allocation = optimization["allocation"].copy()
+    readiness_checks = readiness.get("checks", pd.DataFrame())
+    readiness_warnings = []
+    if isinstance(readiness_checks, pd.DataFrame) and not readiness_checks.empty:
+        readiness_warnings = (
+            readiness_checks.loc[readiness_checks["Status"] != "Ready"]
+            .head(5)
+            .to_dict("records")
+        )
+
+    shifts = allocation_shift_summary(optimization)
+    increase_rows = shifts["increase_rows"]
+    decrease_rows = shifts["decrease_rows"]
+    return {
+        "workflow": [
+            "data upload",
+            "readiness checks",
+            "MMM model training",
+            "baseline comparison",
+            "channel contribution and ROI analysis",
+            "simulation",
+            "optimization",
+            "evidence packet",
+            "AI-generated stakeholder recommendation",
+            "responsible AI/risk review",
+            "rollout plan",
+        ],
+        "executive_summary": dict(recommendation_summary),
+        "model_trust": dict(trust),
+        "model_metrics": evidence_packet.get("prediction_layer", {}).get("metrics", {}),
+        "evaluation": evidence_packet.get("evaluation", {}),
+        "business_targets": evidence_packet.get("business_targets", {}),
+        "kpi_scorecard": display_business_scorecard(scorecard).to_dict("records"),
+        "top_channel_evidence": evidence_packet.get("top_channel_evidence", []),
+        "recommended_allocation": allocation[
+            ["Channel", "Current Spend", "Recommended Spend", "Spend Shift", "Change %"]
+        ].to_dict("records"),
+        "channels_to_increase": (
+            increase_rows[["Channel", "Spend Shift", "Change %"]].head(3).to_dict("records")
+            if isinstance(increase_rows, pd.DataFrame) and not increase_rows.empty
+            else []
+        ),
+        "channels_to_decrease": (
+            decrease_rows[["Channel", "Spend Shift", "Change %"]].head(3).to_dict("records")
+            if isinstance(decrease_rows, pd.DataFrame) and not decrease_rows.empty
+            else []
+        ),
+        "optimization": evidence_packet.get("optimization", {}),
+        "confidence_range": {
+            "low": round(float(optimization.get("revenue_delta_low", 0.0) or 0.0), 2),
+            "expected_pct": round(float(optimization.get("revenue_delta_pct", 0.0) or 0.0), 2),
+            "high": round(float(optimization.get("revenue_delta_high", 0.0) or 0.0), 2),
+        },
+        "active_simulation": {
+            "revenue_delta_pct": round(float(simulation.get("revenue_delta_pct", 0.0) or 0.0), 2),
+            "budget_delta": round(float(simulation.get("budget_delta", 0.0) or 0.0), 2),
+        },
+        "readiness": {
+            "score": readiness.get("score"),
+            "status": readiness.get("status"),
+            "warnings": readiness_warnings,
+        },
+        "risk_audit": risk_audit.to_dict("records"),
+        "guardrails": [
+            "Use only model evidence and KPI results in the recommendation.",
+            "Mention model trust, MAPE, confidence range, and caveats.",
+            "Recommend a pilot when model quality or conservative impact is uncertain.",
+            "Require human review before permanent budget changes.",
+        ],
+    }
+
+
+def grounded_ai_brief_html(payload: Mapping[str, object]) -> str:
+    summary = payload.get("executive_summary", {}) or {}
+    trust = payload.get("model_trust", {}) or {}
+    confidence = payload.get("confidence_range", {}) or {}
+    readiness = payload.get("readiness", {}) or {}
+    low_value = confidence.get("low", 0.0)
+    high_value = confidence.get("high", 0.0)
+    try:
+        confidence_range = f"{signed_money(float(low_value))} to {signed_money(float(high_value))}"
+    except (TypeError, ValueError):
+        confidence_range = "N/A"
+    return f"""
+    <div class="ai-brief">
+      <h4>Grounded AI stakeholder brief</h4>
+      <p><strong>Recommended action:</strong> {escape(str(summary.get("recommendation", "")))}</p>
+      <p><strong>Expected business impact:</strong> {escape(str(summary.get("impact", "")))}</p>
+      <p><strong>Model confidence:</strong> {escape(str(summary.get("confidence", "")))} Trust status is {escape(str(trust.get("label", "Unknown")))}.</p>
+      <p><strong>Evidence used:</strong> MMM metrics, baseline comparison, channel ROI/contribution, optimization output, KPI scorecard, and responsible AI audit.</p>
+      <p><strong>Data and risk caveat:</strong> Readiness is {escape(str(readiness.get("score", "N/A")))}/100 ({escape(str(readiness.get("status", "Unknown")))}); conservative-to-optimistic revenue range is {escape(confidence_range)}.</p>
+      <p><strong>Next step:</strong> {escape(str(summary.get("next_step", "")))}</p>
+    </div>
+    """
+
+
+def maybe_generate_openai_recommendations(
+    payload: Mapping[str, object],
 ) -> str | None:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -1582,30 +1805,23 @@ def maybe_generate_openai_recommendations(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        allocation = optimization["allocation"].copy()
-        payload = {
-            "ai_approach": evidence_packet,
-            "top_roi": contribution[["Channel", "ROI", "Estimated Contribution"]].head(3).to_dict("records"),
-            "recommended_allocation": allocation[
-                ["Channel", "Current Spend", "Recommended Spend", "Change %"]
-            ].to_dict("records"),
-            "optimized_revenue_delta_pct": optimization["revenue_delta_pct"],
-            "simulation_revenue_delta_pct": simulation["revenue_delta_pct"],
-        }
         response = client.chat.completions.create(
             model=os.getenv("OPENAI_MMX_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini")),
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "You are a marketing analytics consultant. Give 3 concise, "
-                        "actionable budget recommendations using only the evidence packet. "
-                        "Mention revenue, ROI, CAC, model confidence, and human review."
+                        "You are Mixalyzer's grounded recommendation engine for marketing mix optimization. "
+                        "Use only the JSON evidence payload. Do not invent channels, metrics, dates, or impact numbers. "
+                        "Write a concise stakeholder-ready recommendation with these sections: Recommended action, "
+                        "Expected business impact, Evidence used, Confidence and caveats, Pilot next step. "
+                        "Mention model trust, MAPE or baseline comparison when available, confidence range, and human review. "
+                        "If model trust is weak, lead with caution and recommend improving data/model quality before acting."
                     ),
                 },
                 {"role": "user", "content": json.dumps(payload, default=str)},
             ],
-            temperature=0.35,
+            temperature=0.2,
         )
         return response.choices[0].message.content or None
     except Exception:
@@ -1613,7 +1829,14 @@ def maybe_generate_openai_recommendations(
 
 
 with st.sidebar:
-    st.markdown("### Mixalyzer")
+    sidebar_logo_uri = asset_data_uri("mixalyzer_logo.svg")
+    if sidebar_logo_uri:
+        st.markdown(
+            f"<img src='{sidebar_logo_uri}' alt='Mixalyzer logo' style='width:100%;max-width:245px;margin-bottom:0.75rem;'>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown("### Mixalyzer")
     uploaded = st.file_uploader("Marketing dataset", type=["csv"])
     st.download_button(
         "Download CSV template",
@@ -1621,7 +1844,7 @@ with st.sidebar:
         file_name="marketing_mix_template.csv",
         mime="text/csv",
         key="download_csv_template",
-        use_container_width=True,
+        width="stretch",
     )
     raw_data = read_input_data(uploaded)
     with st.expander("Auto column mapping", expanded=uploaded is not None):
@@ -1705,13 +1928,29 @@ default_summary = executive_recommendation_summary(
     max_mape_pct,
 )
 
+logo_uri = asset_data_uri("mixalyzer_logo.svg")
+hero_uri = asset_data_uri("mixalyzer_hero.svg")
+logo_markup = (
+    f"<img class='brand-logo' src='{logo_uri}' alt='Mixalyzer logo'>"
+    if logo_uri
+    else "<div class='brand-mark'>MX</div>"
+)
+
 st.markdown(
-    """
-    <div class="brand-kicker">Mixalyzer</div>
-    <div class="brand-title">AI-powered marketing mix optimization for growth teams</div>
-    <div class="brand-subtitle">
-      Upload weekly marketing data, evaluate model quality, simulate budget changes, optimize allocation,
-      and export stakeholder-ready recommendations tied to ROI, CAC, revenue lift, MAPE, and confidence ranges.
+    f"""
+    <div class="app-header">
+      <div class="brand-lockup">
+        {logo_markup}
+        <div>
+          <div class="brand-kicker">Marketing intelligence platform</div>
+          <div class="brand-title">AI-powered marketing mix optimization for growth teams</div>
+          <div class="brand-subtitle">
+            Upload weekly marketing data, evaluate model quality, simulate budget changes, optimize allocation,
+            and export stakeholder-ready recommendations tied to ROI, CAC, revenue lift, MAPE, and confidence ranges.
+          </div>
+        </div>
+      </div>
+      <div class="brand-pill">MMM + Optimization + Grounded GenAI</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1759,13 +1998,33 @@ for col, (label, value) in zip(kpi_cols, top_metrics):
 )
 
 with home_tab:
-    st.markdown(
+    hero_visual_markup = (
+        f"<img class='hero-visual' src='{hero_uri}' alt='Mixalyzer dashboard and AI recommendation illustration'>"
+        if hero_uri
+        else """
+        <div class="feature-card">
+          <h4>Hero image placeholder</h4>
+          <p>Add a replacement image at assets/mixalyzer_hero.svg or update the asset path in mmx_app.py.</p>
+        </div>
         """
+    )
+    st.markdown(
+        f"""
         <div class="hero">
-          <h2>Mixalyzer</h2>
-          <p>
-            AI-powered marketing mix optimization for growth teams.
-          </p>
+          <div>
+            <div class="hero-eyebrow">Marketing intelligence. Budget optimization. AI decision support.</div>
+            <h2>Turn messy channel spend into a confident budget plan.</h2>
+            <p>
+              Mixalyzer combines MMM prediction, baseline comparison, optimization, and grounded AI narrative generation
+              so growth, finance, and executive teams can see what changed, what to do next, and how much risk remains.
+            </p>
+            <div class="identity-row">
+              <span class="identity-chip">Channel contribution</span>
+              <span class="identity-chip">Marginal response</span>
+              <span class="identity-chip">Executive recommendations</span>
+            </div>
+          </div>
+          <div>{hero_visual_markup}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1820,11 +2079,11 @@ with home_tab:
 
     cta_cols = st.columns(3)
     with cta_cols[0]:
-        st.button("Review data readiness", use_container_width=True)
+        st.button("Review data readiness", width="stretch")
     with cta_cols[1]:
-        st.button("Run budget optimization", use_container_width=True)
+        st.button("Run budget optimization", width="stretch")
     with cta_cols[2]:
-        st.button("Export executive outputs", use_container_width=True)
+        st.button("Export executive outputs", width="stretch")
 
     feature_cols = st.columns(4)
     feature_copy = [
@@ -1834,6 +2093,38 @@ with home_tab:
         ("Executive outputs", "Download a PDF report, allocation workbook, and evidence workbook."),
     ]
     for col, (title, body) in zip(feature_cols, feature_copy):
+        with col:
+            st.markdown(
+                f"""
+                <div class="feature-card">
+                  <h4>{title}</h4>
+                  <p>{body}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.subheader("Why AI is appropriate here")
+    ai_cols = st.columns(4)
+    ai_cards = [
+        (
+            "MMM estimates impact",
+            "The ML layer learns channel contribution and marginal response from historical weekly spend and revenue.",
+        ),
+        (
+            "Optimization chooses a plan",
+            "The optimizer reallocates budget under constraints instead of only ranking channels after the fact.",
+        ),
+        (
+            "GenAI translates evidence",
+            "The narrative layer uses model metrics, KPI results, confidence ranges, and the evidence packet to write for stakeholders.",
+        ),
+        (
+            "Humans stay in control",
+            "Responsible AI checks and pilot rules keep recommendations as decision support before budget changes go live.",
+        ),
+    ]
+    for col, (title, body) in zip(ai_cols, ai_cards):
         with col:
             st.markdown(
                 f"""
@@ -1883,6 +2174,18 @@ with strategy_tab:
             unsafe_allow_html=True,
         )
 
+    st.subheader("Integrated AI decision workflow")
+    st.markdown(
+        """
+        <div class="summary-box">
+          <h4>From data to decision support</h4>
+          <p>Data upload -> readiness checks -> MMM model training -> baseline comparison -> channel contribution and ROI analysis -> simulation -> optimization -> evidence packet -> AI-generated stakeholder recommendation -> responsible AI/risk review -> rollout plan.</p>
+          <p>Generative AI is the translation layer, not the modeling layer: it reads the MMM evidence, KPI impact, confidence range, and risk audit before writing a business recommendation.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.subheader("Competitive advantage")
     advantage_cols = st.columns(5)
     advantages = [
@@ -1925,7 +2228,7 @@ with business_goals_tab:
         with col:
             render_metric_card(metric_name, row["Status"], row["Delta"])
 
-    st.dataframe(scorecard_display, hide_index=True, use_container_width=True)
+    st.dataframe(scorecard_display, hide_index=True, width="stretch")
 
     st.subheader("Selected AI approach")
     approach_cols = st.columns(3)
@@ -1961,7 +2264,7 @@ with business_goals_tab:
         file_name="mixalyzer_genai_evidence_packet.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="download_business_goals_evidence_packet",
-        use_container_width=True,
+        width="stretch",
     )
 
 with data_setup_tab:
@@ -1995,18 +2298,18 @@ with data_setup_tab:
             }
             for canonical, source in column_mapping.items()
         ]
-        st.dataframe(pd.DataFrame(mapping_rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(mapping_rows), hide_index=True, width="stretch")
     with map_right:
-        st.dataframe(readiness["checks"], hide_index=True, use_container_width=True)
+        st.dataframe(readiness["checks"], hide_index=True, width="stretch")
 
     st.subheader("External event controls")
     st.caption(
         "Controls help prevent marketing channels from receiving credit or blame for events such as holidays, stockouts, launches, competitor campaigns, or macro conditions."
     )
-    st.dataframe(detected_control_summary(data), hide_index=True, use_container_width=True)
+    st.dataframe(detected_control_summary(data), hide_index=True, width="stretch")
 
     st.subheader("Cleaned data preview")
-    st.dataframe(data.head(20), hide_index=True, use_container_width=True)
+    st.dataframe(data.head(20), hide_index=True, width="stretch")
 
 with dashboard_tab:
     st.subheader("What happened historically?")
@@ -2150,7 +2453,7 @@ with optimization_tab:
     )
 
     st.subheader("Business KPI impact")
-    st.dataframe(display_business_scorecard(optimization_scorecard), hide_index=True, use_container_width=True)
+    st.dataframe(display_business_scorecard(optimization_scorecard), hide_index=True, width="stretch")
 
     opt_left, opt_right = st.columns([1.2, 1])
     with opt_left:
@@ -2164,7 +2467,7 @@ with optimization_tab:
                 ["Channel", "Current Spend", "Recommended Spend", "Spend Shift", "Change %"]
             ],
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Current Spend": st.column_config.NumberColumn(format="$%.0f"),
                 "Recommended Spend": st.column_config.NumberColumn(format="$%.0f"),
@@ -2174,20 +2477,29 @@ with optimization_tab:
         )
     with opt_right:
         st.subheader("AI recommendation panel")
+        ai_risk_audit = build_responsible_ai_audit(data, evaluation_results, contribution_df, max_mape_pct)
+        grounded_payload = build_grounded_ai_payload(
+            contribution_df,
+            optimization,
+            simulation,
+            optimization_evidence_packet,
+            optimization_scorecard,
+            trust_assessment,
+            readiness,
+            ai_risk_audit,
+            optimization_summary,
+        )
         narrative = (
-            maybe_generate_openai_recommendations(
-                contribution_df,
-                optimization,
-                simulation,
-                optimization_evidence_packet,
-            )
+            maybe_generate_openai_recommendations(grounded_payload)
             if use_openai
             else None
         )
         deterministic_recommendations = generate_recommendations(contribution_df, optimization, simulation)
         if narrative:
+            st.caption("Generated from the MMM evidence packet, KPI scorecard, confidence range, and risk audit.")
             st.markdown(narrative)
         else:
+            st.markdown(grounded_ai_brief_html(grounded_payload), unsafe_allow_html=True)
             for item in deterministic_recommendations:
                 st.markdown(f"<div class='recommendation'>{item}</div>", unsafe_allow_html=True)
 
@@ -2207,7 +2519,7 @@ with optimization_tab:
             file_name="marketing_mix_executive_report.pdf",
             mime="application/pdf",
             key="download_optimization_executive_report",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             "Download allocation workbook",
@@ -2221,7 +2533,7 @@ with optimization_tab:
             file_name="recommended_budget_allocation.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="download_optimization_allocation_workbook",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             "Download evidence workbook",
@@ -2229,7 +2541,7 @@ with optimization_tab:
             file_name="mixalyzer_genai_evidence_packet.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="download_optimization_evidence_packet",
-            use_container_width=True,
+            width="stretch",
         )
 
 with evaluation_tab:
@@ -2256,7 +2568,7 @@ with evaluation_tab:
             st.dataframe(
                 model_comparison_df,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "R2": st.column_config.NumberColumn(format="%.2f"),
                     "MAE": st.column_config.NumberColumn(format="$%.0f"),
@@ -2299,7 +2611,7 @@ with evaluation_tab:
         st.dataframe(
             metrics_df,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "MMX": st.column_config.NumberColumn(format="%.2f"),
                 "Baseline": st.column_config.NumberColumn(format="%.2f"),
@@ -2340,7 +2652,7 @@ with responsible_ai_tab:
             unsafe_allow_html=True,
         )
 
-    st.dataframe(risk_df, hide_index=True, use_container_width=True)
+    st.dataframe(risk_df, hide_index=True, width="stretch")
 
 with pilot_plan_tab:
     st.subheader("Rollout / Pilot Plan")
@@ -2355,7 +2667,7 @@ with pilot_plan_tab:
         max_mape_pct,
         duration_weeks=pilot_duration,
     )
-    st.dataframe(pilot_plan, hide_index=True, use_container_width=True)
+    st.dataframe(pilot_plan, hide_index=True, width="stretch")
 
     shifts = allocation_shift_summary(default_optimization)
     pilot_cols = st.columns(3)
@@ -2383,7 +2695,7 @@ with model_tab:
     model_left, model_right = st.columns([1, 1])
     with model_left:
         st.subheader("Training data")
-        st.dataframe(data.tail(12), hide_index=True, use_container_width=True)
+        st.dataframe(data.tail(12), hide_index=True, width="stretch")
         st.subheader("Adstock carryover settings")
         adstock_df = pd.DataFrame(
             [
@@ -2398,11 +2710,11 @@ with model_tab:
         st.dataframe(
             adstock_df,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={"Carryover Decay": st.column_config.NumberColumn(format="%.2f")},
         )
         st.subheader("External controls included")
-        st.dataframe(detected_control_summary(data), hide_index=True, use_container_width=True)
+        st.dataframe(detected_control_summary(data), hide_index=True, width="stretch")
     with model_right:
         st.subheader("Model diagnostics")
         diagnostics = pd.DataFrame(
@@ -2413,11 +2725,11 @@ with model_tab:
                 {"Metric": "MAPE", "Value": model.metrics["mape"]},
             ]
         )
-        st.dataframe(diagnostics, hide_index=True, use_container_width=True)
+        st.dataframe(diagnostics, hide_index=True, width="stretch")
 
         coefficients = (
             model.coefficients.rename_axis("Feature")
             .reset_index(name="Coefficient")
             .sort_values("Coefficient", ascending=False)
         )
-        st.dataframe(coefficients, hide_index=True, use_container_width=True)
+        st.dataframe(coefficients, hide_index=True, width="stretch")

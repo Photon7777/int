@@ -2,6 +2,16 @@
 
 Mixalyzer is an AI-powered marketing mix optimization platform for growth teams. It helps business users understand which marketing channels drive revenue, evaluate whether the model is reliable, simulate budget changes, optimize next-period allocation, and export stakeholder-ready recommendations.
 
+## Visual Identity
+
+Mixalyzer is branded as a modern, analytical, trustworthy SaaS product focused on marketing intelligence, budget optimization, and AI-powered decision support.
+
+- Logo asset: `assets/mixalyzer_logo.svg`
+- Landing hero asset: `assets/mixalyzer_hero.svg`
+- Theme direction: deep navy analytics interface, teal intelligence accent, blue optimization accent, and gold growth highlight.
+
+The assets are intentionally simple SVG files so they render reliably on Streamlit Cloud and can be replaced later without changing the app structure.
+
 ## Business Problem
 
 Marketing teams often spend across Google, Meta, Instagram, TV, email, promotions, and other channels without a clear view of incremental revenue impact. Last-click attribution can over-credit channels near the purchase and under-credit delayed effects, offline campaigns, seasonality, promotions, and broader business events.
@@ -42,6 +52,24 @@ Mixalyzer uses a Marketing Mix Modeling workflow:
 3. Model building: Ridge MMM with adstock carryover, saturation-style spend features, trend, seasonality, and optional controls.
 4. Optional Bayesian MMM: lightweight Bayesian regression with posterior-style uncertainty intervals.
 5. Generative AI layer: optional OpenAI narrative generation grounded only in the evidence workbook and model outputs.
+
+The intended decision-support flow is:
+
+```text
+Data upload
+-> readiness checks
+-> MMM model training
+-> baseline comparison
+-> channel contribution and ROI analysis
+-> simulation
+-> optimization
+-> evidence packet
+-> AI-generated stakeholder recommendation
+-> responsible AI/risk review
+-> rollout plan
+```
+
+AI is appropriate here because the model estimates response patterns from historical spend/revenue data, the optimizer turns those estimates into a budget allocation, and generative AI translates the evidence into executive language. The generative layer does not operate independently: it consumes model metrics, baseline comparison, confidence ranges, KPI scorecards, recommended allocation, and responsible AI audit results.
 
 ## Model Evaluation
 
@@ -144,6 +172,9 @@ These controls help prevent marketing channels from receiving credit or blame fo
 .
 |-- marketing_mix_model.py          # Modeling, mapping, readiness, evaluation, optimization
 |-- mmx_app.py                      # Streamlit Mixalyzer product UI
+|-- assets/
+|   |-- mixalyzer_logo.svg
+|   `-- mixalyzer_hero.svg
 |-- requirements.txt
 `-- tests/
     `-- test_marketing_mix_model.py

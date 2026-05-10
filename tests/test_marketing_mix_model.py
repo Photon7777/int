@@ -200,6 +200,7 @@ class MarketingMixModelTests(unittest.TestCase):
 
         self.assertEqual(packet["selected_ai_approach"], "Both: predictive ML plus grounded generative AI")
         self.assertEqual(packet["prediction_layer"]["model"], self.model.model_kind)
+        self.assertIn("external event controls", packet["prediction_layer"]["features"])
         self.assertGreaterEqual(len(packet["top_channel_evidence"]), 1)
         self.assertGreaterEqual(len(packet["recommended_allocation"]), len(DEFAULT_CHANNELS))
 

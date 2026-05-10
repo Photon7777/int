@@ -1076,17 +1076,21 @@ def build_genai_evidence_packet(
             "rmse_improvement_pct": round(float(evaluation["rmse_improvement_pct"]), 2),
         }
 
+    feature_descriptions = [
+        "weekly spend",
+        "seasonality",
+        "trend",
+        "adstock carryover",
+        "diminishing-return log spend transforms",
+    ]
+    if any(column.startswith("control_") for column in model.feature_columns):
+        feature_descriptions.append("external event controls")
+
     return {
         "selected_ai_approach": "Both: predictive ML plus grounded generative AI",
         "prediction_layer": {
             "model": model.model_kind,
-            "features": [
-                "weekly spend",
-                "seasonality",
-                "trend",
-                "adstock carryover",
-                "diminishing-return log spend transforms",
-            ],
+            "features": feature_descriptions,
             "metrics": {
                 "r2": round(float(model.metrics.get("r2", 0.0)), 3),
                 "mape": round(float(model.metrics.get("mape", 0.0)), 2),
@@ -1094,7 +1098,7 @@ def build_genai_evidence_packet(
             },
         },
         "generation_layer": {
-            "strategy": "Use MMM outputs as the evidence packet for recommendation generation.",
+            "strategy": "Translate MMM, optimization, KPI, confidence, and risk outputs into stakeholder-ready business language.",
             "allowed_outputs": [
                 "budget shift recommendation",
                 "executive summary",

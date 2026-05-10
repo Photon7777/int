@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="680" viewBox="0 0 1080 680" role="img" aria-labelledby="title desc">
+  <title id="title">Mixalyzer hero illustration</title>
+  <desc id="desc">A marketing mix dashboard showing spend channels, optimization, model trust, and AI recommendations.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1080" y2="680" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1F26"/>
+      <stop offset="0.45" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="108" y1="110" x2="935" y2="578" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38D7C1"/>
+      <stop offset="1" stop-color="#7C8CFF"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="646" y1="128" x2="913" y2="318" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F6C85F"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#020617" flood-opacity="0.36"/>
+    </filter>
+  </defs>
+  <rect width="1080" height="680" rx="42" fill="url(#bg)"/>
+  <path d="M72 556C193 475 270 500 375 421C503 324 569 173 748 154C843 144 929 172 1018 104" fill="none" stroke="#38D7C1" stroke-opacity="0.18" stroke-width="38" stroke-linecap="round"/>
+  <path d="M82 574C205 498 280 518 384 438C516 337 582 190 748 172C842 162 925 190 1004 126" fill="none" stroke="#7C8CFF" stroke-opacity="0.32" stroke-width="7" stroke-linecap="round"/>
+  <g filter="url(#shadow)">
+    <rect x="90" y="74" width="900" height="532" rx="28" fill="#0B1220" stroke="#263244" stroke-width="2"/>
+    <rect x="90" y="74" width="900" height="72" rx="28" fill="#111827"/>
+    <circle cx="135" cy="111" r="10" fill="#38D7C1"/>
+    <circle cx="165" cy="111" r="10" fill="#F6C85F"/>
+    <circle cx="195" cy="111" r="10" fill="#7C8CFF"/>
+    <text x="235" y="119" fill="#E2E8F0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" font-weight="800">Mixalyzer AI Decision Console</text>
+    <rect x="118" y="178" width="250" height="142" rx="18" fill="#101B2B" stroke="#243044"/>
+    <text x="142" y="214" fill="#94A3B8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700">Model trust</text>
+    <rect x="142" y="236" width="150" height="34" rx="17" fill="#063F3A" stroke="#38D7C1"/>
+    <text x="161" y="259" fill="#A7F3D0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="15" font-weight="800">Trust for planning</text>
+    <text x="142" y="296" fill="#F8FAFC" font-family="Inter, Helvetica, Arial, sans-serif" font-size="36" font-weight="800">MAPE 4.8%</text>
+    <rect x="398" y="178" width="264" height="142" rx="18" fill="#101B2B" stroke="#243044"/>
+    <text x="422" y="214" fill="#94A3B8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700">Optimized impact</text>
+    <text x="422" y="260" fill="#F8FAFC" font-family="Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="850">+8.4%</text>
+    <text x="548" y="260" fill="#38D7C1" font-family="Inter, Helvetica, Arial, sans-serif" font-size="21" font-weight="800">revenue lift</text>
+    <text x="422" y="296" fill="#CBD5E1" font-family="Inter, Helvetica, Arial, sans-serif" font-size="17">Confidence range: positive</text>
+    <rect x="690" y="178" width="272" height="142" rx="18" fill="#101B2B" stroke="#243044"/>
+    <text x="714" y="214" fill="#94A3B8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="700">AI recommendation</text>
+    <path d="M719 266H850" stroke="#38D7C1" stroke-width="8" stroke-linecap="round"/>
+    <path d="M719 291H922" stroke="#7C8CFF" stroke-width="8" stroke-linecap="round"/>
+    <path d="M719 241H902" stroke="#F6C85F" stroke-width="8" stroke-linecap="round"/>
+    <rect x="118" y="354" width="548" height="190" rx="18" fill="#101B2B" stroke="#243044"/>
+    <text x="142" y="392" fill="#E2E8F0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="22" font-weight="800">Budget allocation response curve</text>
+    <path d="M150 500C206 492 239 469 278 445C321 419 368 407 413 428C463 452 496 474 542 442C582 415 611 404 638 400" fill="none" stroke="url(#teal)" stroke-width="7" stroke-linecap="round"/>
+    <g fill="#38D7C1">
+      <circle cx="150" cy="500" r="6"/>
+      <circle cx="278" cy="445" r="6"/>
+      <circle cx="413" cy="428" r="6"/>
+      <circle cx="542" cy="442" r="6"/>
+      <circle cx="638" cy="400" r="6"/>
+    </g>
+    <rect x="710" y="354" width="252" height="190" rx="18" fill="#101B2B" stroke="#243044"/>
+    <text x="734" y="392" fill="#E2E8F0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="22" font-weight="800">Channel shifts</text>
+    <rect x="738" y="426" width="48" height="82" rx="9" fill="#38D7C1"/>
+    <rect x="804" y="456" width="48" height="52" rx="9" fill="#7C8CFF"/>
+    <rect x="870" y="405" width="48" height="103" rx="9" fill="url(#gold)"/>
+    <path d="M752 520H916" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>
